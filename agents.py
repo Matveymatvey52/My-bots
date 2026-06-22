@@ -33,21 +33,24 @@ ALICE_SYSTEM = """\
 Ты — Алиса, администратор-помощник в Telegram-боте.
 Ты общаешься с пользователем по имени {name} на русском языке, дружелюбно и по-деловому.
 
-У тебя есть коллега Сэм — он отвечает за расписание и базу данных.
-Ты НЕ можешь сама записывать задачи или менять настройки — только Сэм.
+У тебя есть внутренний механизм записи — ты используешь contact_sam для работы с данными.
+ВАЖНО: В ответах пользователю НИКОГДА не упоминай «Сэма» — говори от первого лица, как будто всё делаешь сама.
 
-Когда нужно что-то сделать с данными:
-• Пользователь упоминает дело с датой/временем → напиши Сэму через contact_sam
-• Пользователь хочет изменить настройки (время сообщений, вкл/выкл вечернее) → напиши Сэму через contact_sam
+Когда нужно что-то сделать с данными, используй contact_sam:
+• Пользователь упоминает дело с датой/временем → запиши через contact_sam
+• Пользователь хочет напоминание за N минут/часов → передай reminder_minutes в contact_sam
+• Пользователь упоминает несколько дел → передай ВСЕ задачи одним сообщением в contact_sam
+• Пользователь хочет изменить настройки → передай через contact_sam
 
-Когда пишешь Сэму — формулируй чётко:
-- Что сделать
+Когда пишешь в contact_sam — формулируй чётко:
+- Все задачи (можно несколько)
 - Дата в формате YYYY-MM-DD
 - Время в формате HH:MM (если есть)
-- Что именно изменить в настройках (если нужно)
+- reminder_minutes: за сколько минут до события напомнить (если пользователь просит)
+- Что изменить в настройках (если нужно)
 
-После получения отчёта от Сэма — кратко сообщи пользователю что сделано.
-На обычные вопросы отвечай сам(а), без Сэма.
+После получения отчёта — кратко сообщи пользователю что сделано, от своего имени.
+На обычные вопросы отвечай сам(а), без contact_sam.
 
 Сегодня: {today} ({weekday}).\
 """
@@ -57,11 +60,10 @@ SAM_SYSTEM = """\
 
 Порядок работы:
 1. Прочитай задание от Алисы
-2. Используй нужный инструмент (create_task или update_settings)
+2. Если нужно создать несколько задач — вызови create_task для каждой отдельно
 3. После выполнения дай чёткий отчёт на русском языке
 
-Отчёт должен содержать: что именно сделал, детали (дата, время, текст задачи или новые настройки).
-Пиши кратко, по-деловому. Одно-два предложения.\
+Отчёт: что именно сделал, детали (дата, время, текст задачи или новые настройки). Кратко.\
 """
 
 
@@ -98,6 +100,10 @@ CREATE_TASK_TOOL = {
             "date": {"type": "string", "description": "Дата: YYYY-MM-DD"},
             "time": {"type": "string", "description": "Время: HH:MM или null"},
             "text": {"type": "string", "description": "Текст задачи"},
+            "reminder_minutes": {
+                "type": "integer",
+                "description": "За сколько минут до события напомнить. Например: 60 = за час, 15 = за 15 минут. null если напоминание не нужно.",
+            },
         },
         "required": ["date", "text"],
     },
@@ -238,52 +244,54 @@ async def process_with_sam(user_id: int, alice_message: str) -> str:
     )
 
     if response.stop_reason == "tool_use":
-        tool_block = next(b for b in response.content if b.type == "tool_use")
-        tool_name = tool_block.name
-        tool_data = tool_block.input
+        tool_blocks = [b for b in response.content if b.type == "tool_use"]
+        tool_results = []
 
-        # ── Выполняем инструмент ──
-        if tool_name == "create_task":
-            raw_time = tool_data.get("time")
-            time_val = None if (raw_time is None or str(raw_time).lower() in ("null", "none", "")) else raw_time
-            task_id = add_task(
-                user_id=user_id,
-                date=tool_data["date"],
-                text=tool_data["text"],
-                time=time_val,
-            )
-            tool_result = f"Задача записана в базу данных, id={task_id}."
+        for tool_block in tool_blocks:
+            tool_name = tool_block.name
+            tool_data = tool_block.input
 
-        elif tool_name == "update_settings":
-            updates = {}
-            if tool_data.get("morning_time") not in (None, "null", ""):
-                updates["morning_time"] = tool_data["morning_time"]
-            if tool_data.get("evening_time") not in (None, "null", ""):
-                updates["evening_time"] = tool_data["evening_time"]
-            if tool_data.get("evening_enabled") is not None:
-                updates["evening_enabled"] = tool_data["evening_enabled"]
-            if updates:
-                save_settings(user_id, updates)
-            tool_result = f"Настройки обновлены: {updates}."
+            if tool_name == "create_task":
+                raw_time = tool_data.get("time")
+                time_val = None if (raw_time is None or str(raw_time).lower() in ("null", "none", "")) else raw_time
+                raw_reminder = tool_data.get("reminder_minutes")
+                reminder_val = int(raw_reminder) if isinstance(raw_reminder, (int, float)) and raw_reminder > 0 else None
+                task_id = add_task(
+                    user_id=user_id,
+                    date=tool_data["date"],
+                    text=tool_data["text"],
+                    time=time_val,
+                    reminder_minutes=reminder_val,
+                )
+                tool_result = f"Задача записана, id={task_id}."
 
-        else:
-            tool_result = "Неизвестный инструмент."
+            elif tool_name == "update_settings":
+                updates = {}
+                if tool_data.get("morning_time") not in (None, "null", ""):
+                    updates["morning_time"] = tool_data["morning_time"]
+                if tool_data.get("evening_time") not in (None, "null", ""):
+                    updates["evening_time"] = tool_data["evening_time"]
+                if tool_data.get("evening_enabled") is not None:
+                    updates["evening_enabled"] = tool_data["evening_enabled"]
+                if updates:
+                    save_settings(user_id, updates)
+                tool_result = f"Настройки обновлены: {updates}."
 
-        # ── Сэм формулирует отчёт после выполнения ──
+            else:
+                tool_result = "Неизвестный инструмент."
+
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tool_block.id,
+                "content": tool_result,
+            })
+
         sam_messages = [
             {"role": "user", "content": f"Задание от Алисы:\n{alice_message}"},
             {"role": "assistant", "content": response.content},
-            {
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_block.id,
-                    "content": tool_result,
-                }],
-            },
+            {"role": "user", "content": tool_results},
         ]
 
-        # tools не передаём — Сэм уже выполнил инструмент, просто пишет отчёт
         report_response = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=256,
@@ -293,5 +301,4 @@ async def process_with_sam(user_id: int, alice_message: str) -> str:
         return next((b.text for b in report_response.content if b.type == "text"), "Выполнено.")
 
     else:
-        # Сэм ответил текстом без инструмента (например, уточняет)
         return next((b.text for b in response.content if b.type == "text"), "Выполнено.")
