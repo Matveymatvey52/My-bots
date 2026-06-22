@@ -134,7 +134,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* {text}")
 
         async def send_sam(sam_text: str):
-            await update.message.reply_text(sam_text, parse_mode="Markdown")
             await log_to_chat(context.bot, sam_text)
 
         reply = await process_with_alice(user_id, text, name, on_sam_message=send_sam)
@@ -290,7 +289,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* 🎤 {recognized_text}")
 
     async def send_sam_voice(sam_text: str):
-        await update.message.reply_text(sam_text, parse_mode="Markdown")
         await log_to_chat(context.bot, sam_text)
 
     reply = await process_with_alice(user_id, recognized_text, name, on_sam_message=send_sam_voice)
