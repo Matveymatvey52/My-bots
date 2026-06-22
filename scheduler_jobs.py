@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application
 
-from db import get_tasks_for_day
+from db import get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
 from settings import SETTINGS_DIR, get_all_user_ids, load_settings
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,17 @@ async def send_scheduled_messages(app: Application):
     current_time = now.strftime("%H:%M")  # например, "08:00"
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # ── Напоминания о предстоящих событиях ──
+    for task in get_tasks_needing_reminder(now):
+        mins = task["reminder_minutes"]
+        label = f"через {mins} мин" if mins < 60 else f"через {mins // 60} ч"
+        text = f"⏰ *Напоминание!* {label}: *{task['text']}* в {task['time']}"
+        try:
+            await app.bot.send_message(chat_id=task["user_id"], text=text, parse_mode="Markdown")
+            mark_reminder_sent(task["id"])
+        except Exception as e:
+            logger.error("Не удалось отправить напоминание %d: %s", task["id"], e)
 
     for user_id in get_all_user_ids():
         s = load_settings(user_id)
