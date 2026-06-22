@@ -175,9 +175,11 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "October","октября").replace("November","ноября").replace("December","декабря")
 
     lines = [f"📋 *Дела на сегодня, {date_label}:*\n"]
-    for i, t in enumerate(tasks, 1):
-        time_part = f" — {t['time']}" if t["time"] else ""
-        lines.append(f"{i}. {t['text']}{time_part}")
+    for t in tasks:
+        if t["time"]:
+            lines.append(f"⏰ {t['time']} — {t['text']}")
+        else:
+            lines.append(f"• {t['text']}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -211,9 +213,11 @@ async def all_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         weekday = day_ru[d.strftime("%A")]
         date_str = f"{d.day} {month} ({weekday})"
         lines.append(f"*{date_str}*")
-        for i, t in enumerate(day_tasks, 1):
-            time_part = f" — {t['time']}" if t["time"] else ""
-            lines.append(f"  {i}. {t['text']}{time_part}")
+        for t in day_tasks:
+            if t["time"]:
+                lines.append(f"  ⏰ {t['time']} — {t['text']}")
+            else:
+                lines.append(f"  • {t['text']}")
         lines.append("")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")

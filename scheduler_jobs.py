@@ -103,9 +103,13 @@ async def _send_daily_summary(app: Application, user_id: int, date: str, name: s
         text = f"{header}\n\nДел нет — можно отдыхать 🎉"
     else:
         lines = [header, ""]
-        for i, t in enumerate(tasks, 1):
-            time_part = f" — {t['time']}" if t["time"] else ""
-            lines.append(f"{i}. {t['text']}{time_part}")
+        for t in tasks:
+            if t["time"]:
+                lines.append(f"⏰ {t['time']} — {t['text']}")
+            else:
+                lines.append(f"• {t['text']}")
+        lines.append("")
+        lines.append(f"Насыщенный день! 💪")
         text = "\n".join(lines)
 
     try:
