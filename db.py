@@ -4,6 +4,7 @@
 
 import sqlite3
 from pathlib import Path
+from typing import Optional
 
 # Файл базы данных создаётся в папке data/
 DB_PATH = Path("data/tasks.db")
@@ -33,7 +34,7 @@ def init_db():
         conn.commit()
 
 
-def add_task(user_id: int, date: str, text: str, time: str | None = None) -> int:
+def add_task(user_id: int, date: str, text: str, time: Optional[str] = None) -> int:
     """Добавляет новую задачу. Возвращает id созданной строки."""
     with _conn() as conn:
         cursor = conn.execute(

@@ -10,6 +10,7 @@
 
 import os
 from datetime import datetime
+from typing import Optional
 from anthropic import AsyncAnthropic
 from db import add_task
 
