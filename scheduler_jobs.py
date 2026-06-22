@@ -87,14 +87,25 @@ async def _send_daily_summary(app: Application, user_id: int, date: str, name: s
     else:
         header = f"🌙 Добрый вечер, {name}! На завтра:"
 
+    d = datetime.strptime(date, "%Y-%m-%d")
+    date_label = d.strftime("%-d %B").replace(
+        "January","января").replace("February","февраля").replace("March","марта").replace(
+        "April","апреля").replace("May","мая").replace("June","июня").replace(
+        "July","июля").replace("August","августа").replace("September","сентября").replace(
+        "October","октября").replace("November","ноября").replace("December","декабря")
+
+    if morning:
+        header = f"☀️ *Доброе утро, {name}!*\n📅 На сегодня, {date_label}:"
+    else:
+        header = f"🌙 *Добрый вечер, {name}!*\n📅 На завтра, {date_label}:"
+
     if not tasks:
         text = f"{header}\n\nДел нет — можно отдыхать 🎉"
     else:
         lines = [header, ""]
-        for t in tasks:
-            # Если время указано — показываем его, иначе просто точка
-            prefix = f"⏰ {t['time']} — " if t["time"] else "• "
-            lines.append(f"{prefix}{t['text']}")
+        for i, t in enumerate(tasks, 1):
+            time_part = f" — {t['time']}" if t["time"] else ""
+            lines.append(f"{i}. {t['text']}{time_part}")
         text = "\n".join(lines)
 
     try:

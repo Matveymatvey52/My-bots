@@ -167,10 +167,17 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("На сегодня дел нет 🎉 Отдыхай!")
         return
 
-    lines = ["📋 *Дела на сегодня:*\n"]
-    for t in tasks:
-        prefix = f"⏰ {t['time']} — " if t["time"] else "• "
-        lines.append(f"{prefix}{t['text']}")
+    d = datetime.now()
+    date_label = d.strftime("%-d %B").replace(
+        "January","января").replace("February","февраля").replace("March","марта").replace(
+        "April","апреля").replace("May","мая").replace("June","июня").replace(
+        "July","июля").replace("August","августа").replace("September","сентября").replace(
+        "October","октября").replace("November","ноября").replace("December","декабря")
+
+    lines = [f"📋 *Дела на сегодня, {date_label}:*\n"]
+    for i, t in enumerate(tasks, 1):
+        time_part = f" — {t['time']}" if t["time"] else ""
+        lines.append(f"{i}. {t['text']}{time_part}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -189,19 +196,25 @@ async def all_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in tasks:
         by_date.setdefault(t["date"], []).append(t)
 
+    month_ru = {
+        "January":"января","February":"февраля","March":"марта","April":"апреля",
+        "May":"мая","June":"июня","July":"июля","August":"августа",
+        "September":"сентября","October":"октября","November":"ноября","December":"декабря",
+    }
+    day_ru = {"Monday":"пн","Tuesday":"вт","Wednesday":"ср","Thursday":"чт",
+              "Friday":"пт","Saturday":"сб","Sunday":"вс"}
+
     lines = ["📅 *Все предстоящие дела:*\n"]
     for date, day_tasks in by_date.items():
-        # Красиво форматируем дату
         d = datetime.strptime(date, "%Y-%m-%d")
-        date_str = d.strftime("%d.%m (%A)").replace(
-            "Monday", "пн").replace("Tuesday", "вт").replace(
-            "Wednesday", "ср").replace("Thursday", "чт").replace(
-            "Friday", "пт").replace("Saturday", "сб").replace("Sunday", "вс")
+        month = month_ru[d.strftime("%B")]
+        weekday = day_ru[d.strftime("%A")]
+        date_str = f"{d.day} {month} ({weekday})"
         lines.append(f"*{date_str}*")
-        for t in day_tasks:
-            prefix = f"  ⏰ {t['time']} — " if t["time"] else "  • "
-            lines.append(f"{prefix}{t['text']}")
-        lines.append("")  # пустая строка между датами
+        for i, t in enumerate(day_tasks, 1):
+            time_part = f" — {t['time']}" if t["time"] else ""
+            lines.append(f"  {i}. {t['text']}{time_part}")
+        lines.append("")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
