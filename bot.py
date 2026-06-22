@@ -272,7 +272,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         recognized_text = await transcribe_voice(tmp_path)
     except Exception as e:
         logger.error("Ошибка транскрипции: %s", e)
-        await update.message.reply_text("Не удалось распознать голосовое 😔 Попробуй написать текстом.")
+        await update.message.reply_text("Не удалось распознать голосовое 😔 Попробуй отправить новое или написать текстом.")
         return
     finally:
         os.unlink(tmp_path)  # удаляем временный файл
@@ -351,10 +351,21 @@ def main():
     # Обработчик голосовых сообщений
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-    logger.info("Бот запускается...")
-    # run_polling — бот постоянно спрашивает Telegram: «есть новые сообщения?»
-    # drop_pending_updates=True — игнорируем сообщения, пришедшие пока бот был выключен
-    app.run_polling(drop_pending_updates=True)
+    # На Railway используем webhook — Telegram сам присылает обновления.
+    # Локально используем polling — проще для разработки.
+    webhook_url = os.environ.get("WEBHOOK_URL")
+    if webhook_url:
+        port = int(os.environ.get("PORT", 8080))
+        logger.info("Бот запускается (webhook на порту %d)...", port)
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=webhook_url,
+            drop_pending_updates=True,
+        )
+    else:
+        logger.info("Бот запускается (polling)...")
+        app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
