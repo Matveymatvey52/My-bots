@@ -7,6 +7,7 @@
 
 import logging
 import os
+import tempfile
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -127,10 +128,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Обычный режим: передаём сообщение Алисе ──
     elif is_onboarding_done(user_id):
         name = settings.get("name", "")
-        # Показываем «печатает...», пока Алиса думает
         await context.bot.send_chat_action(update.effective_chat.id, "typing")
-        reply = await process_with_alice(user_id, text, name)
+
+        ts = datetime.now().strftime("%d.%m %H:%M")
+        await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* {text}")
+
+        async def send_sam(sam_text: str):
+            await update.message.reply_text(sam_text, parse_mode="Markdown")
+            await log_to_chat(context.bot, sam_text)
+
+        reply = await process_with_alice(user_id, text, name, on_sam_message=send_sam)
         await update.message.reply_text(reply, parse_mode="Markdown")
+        await log_to_chat(context.bot, f"🤖 *Алиса:* {reply}")
 
     else:
         # Пользователь ещё не запустил /start
@@ -216,6 +225,99 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Запуск
 # ──────────────────────────────────────────────
 
+async def transcribe_voice(file_path: str) -> str:
+    """Отправляет аудиофайл в Groq Whisper и возвращает распознанный текст."""
+    from openai import AsyncOpenAI
+    groq_client = AsyncOpenAI(
+        api_key=os.environ["GROQ_API_KEY"],
+        base_url="https://api.groq.com/openai/v1",
+    )
+    with open(file_path, "rb") as audio_file:
+        response = await groq_client.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=audio_file,
+            language="ru",
+        )
+    return response.text
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик голосовых сообщений.
+    Скачивает аудио → Whisper → текст → Алиса → ответ."""
+    user_id = update.effective_user.id
+
+    if not is_onboarding_done(user_id):
+        await update.message.reply_text("Сначала напиши /start! 👋")
+        return
+
+    # Проверяем, что ключ Groq задан
+    if not os.environ.get("GROQ_API_KEY"):
+        await update.message.reply_text(
+            "⚠️ Голосовые пока не настроены. Добавь GROQ_API_KEY в файл .env"
+        )
+        return
+
+    await context.bot.send_chat_action(update.effective_chat.id, "typing")
+
+    # Скачиваем голосовое во временный файл
+    voice = update.message.voice
+    tg_file = await context.bot.get_file(voice.file_id)
+
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        tmp_path = tmp.name
+    await tg_file.download_to_drive(tmp_path)
+
+    # Транскрибируем через Whisper
+    try:
+        recognized_text = await transcribe_voice(tmp_path)
+    except Exception as e:
+        logger.error("Ошибка транскрипции: %s", e)
+        await update.message.reply_text("Не удалось распознать голосовое 😔 Попробуй написать текстом.")
+        return
+    finally:
+        os.unlink(tmp_path)  # удаляем временный файл
+
+    # Показываем что распознали — полезно для проверки
+    await update.message.reply_text(
+        f"🎤 Распознал: _{recognized_text}_",
+        parse_mode="Markdown",
+    )
+
+    # Дальше — как обычное текстовое сообщение: передаём Алисе
+    name = load_settings(user_id).get("name", "")
+
+    ts = datetime.now().strftime("%d.%m %H:%M")
+    await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* 🎤 {recognized_text}")
+
+    async def send_sam_voice(sam_text: str):
+        await update.message.reply_text(sam_text, parse_mode="Markdown")
+        await log_to_chat(context.bot, sam_text)
+
+    reply = await process_with_alice(user_id, recognized_text, name, on_sam_message=send_sam_voice)
+    await update.message.reply_text(reply, parse_mode="Markdown")
+    await log_to_chat(context.bot, f"🤖 *Алиса:* {reply}")
+
+
+async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/chatid — показывает ID текущего чата. Используй в лог-чате, чтобы узнать его ID."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        f"ID этого чата: `{chat_id}`\n\nСкопируй и вставь в `.env` как:\n`LOG_CHAT_ID={chat_id}`",
+        parse_mode="Markdown",
+    )
+
+
+async def log_to_chat(bot, text: str):
+    """Отправляет одну строку в лог-чат (если LOG_CHAT_ID задан в .env)."""
+    log_chat_id = os.environ.get("LOG_CHAT_ID")
+    if not log_chat_id:
+        return
+    try:
+        await bot.send_message(chat_id=int(log_chat_id), text=text, parse_mode="Markdown")
+    except Exception:
+        pass
+
+
 async def post_init(app: Application):
     """Вызывается после инициализации бота, до начала polling.
     Здесь запускаем планировщик — он должен стартовать в том же event loop."""
@@ -241,9 +343,13 @@ def main():
     app.add_handler(CommandHandler("tasks", tasks_command))
     app.add_handler(CommandHandler("all", all_tasks_command))
     app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("chatid", chatid_command))
 
     # Обработчик всех текстовых сообщений (кроме команд)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Обработчик голосовых сообщений
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
     logger.info("Бот запускается...")
     # run_polling — бот постоянно спрашивает Telegram: «есть новые сообщения?»

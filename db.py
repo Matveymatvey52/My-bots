@@ -17,21 +17,57 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db():
-    """Создаёт таблицу tasks, если её ещё не существует.
+    """Создаёт таблицы, если их ещё не существует.
     Вызывается один раз при запуске бота."""
     with _conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id    INTEGER NOT NULL,   -- кому принадлежит задача
-                date       TEXT    NOT NULL,   -- дата: YYYY-MM-DD
-                time       TEXT,               -- время: HH:MM (или NULL, если не указано)
-                text       TEXT    NOT NULL,   -- текст задачи
+                user_id    INTEGER NOT NULL,
+                date       TEXT    NOT NULL,
+                time       TEXT,
+                text       TEXT    NOT NULL,
                 status     TEXT    DEFAULT 'active',
                 created_at TEXT    DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                role       TEXT    NOT NULL,   -- 'user' или 'assistant'
+                content    TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now', 'localtime'))
+            )
+        """)
         conn.commit()
+
+
+def save_message(user_id: int, role: str, content: str):
+    """Сохраняет одно сообщение диалога в базу."""
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO messages (user_id, role, content) VALUES (?, ?, ?)",
+            (user_id, role, content),
+        )
+        conn.commit()
+
+
+def load_history(user_id: int, limit: int = 20) -> list[dict]:
+    """Возвращает последние N сообщений диалога (в хронологическом порядке)."""
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT role, content FROM (
+                   SELECT role, content, created_at
+                   FROM messages
+                   WHERE user_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT ?
+               ) ORDER BY created_at ASC""",
+            (user_id, limit),
+        ).fetchall()
+        return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 
 def add_task(user_id: int, date: str, text: str, time: Optional[str] = None) -> int:

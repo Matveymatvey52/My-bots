@@ -1,200 +1,297 @@
-# agents.py — здесь живут Алиса и Сэм.
+# agents.py — Алиса и Сэм.
 #
-# Как это работает:
-# 1. Пользователь пишет что-то боту ("завтра в 10 встреча")
-# 2. Мы отправляем это Алисе (запрос к Claude)
-# 3. Алиса решает: просто ответить или создать задачу
-# 4. Если создать — она вызывает инструмент create_task
-# 5. Мы выполняем инструмент: просим Сэма записать задачу в БД
-# 6. Отправляем результат обратно Алисе → она даёт финальный ответ пользователю
+# АЛИСА — администратор. Общается с пользователем.
+#   Сама НЕ трогает базу данных — только пишет задание Сэму.
+#   Инструмент: contact_sam(message) — отправить задание Сэму.
+#
+# СЭМ — менеджер расписания. Получает задание от Алисы.
+#   Выполняет его с помощью инструментов (create_task, update_settings).
+#   Возвращает письменный отчёт → Алиса передаёт его пользователю.
+#
+# Схема:
+#   Пользователь → [Алиса] → contact_sam → [Сэм] → инструменты → отчёт → [Алиса] → Пользователь
 
+import asyncio
 import os
 from datetime import datetime
 from typing import Optional
 from anthropic import AsyncAnthropic
-from db import add_task
+from db import add_task, load_history, save_message
+from settings import save_settings
 
-# Клиент сам читает ANTHROPIC_API_KEY из переменных окружения
+# Клиент читает ANTHROPIC_API_KEY из переменных окружения
 client = AsyncAnthropic()
 
-# Хранилище истории диалогов: {user_id: [список сообщений]}
-# Хранится в памяти — при перезапуске бота история сбрасывается
-conversation_history: dict[int, list] = {}
-
-# Максимум сообщений в истории (старые обрезаются)
 MAX_HISTORY = 20
 
 
-# ──────────────────────────────────────────────
-# Системные промпты (роли персонажей)
-# ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════
+#  СИСТЕМНЫЕ ПРОМПТЫ
+# ══════════════════════════════════════════════════
 
 ALICE_SYSTEM = """\
-Ты — Алиса, дружелюбный помощник-администратор в Telegram-боте.
-Ты общаешься с пользователем по имени {name} на русском языке, живо и по-деловому.
+Ты — Алиса, администратор-помощник в Telegram-боте.
+Ты общаешься с пользователем по имени {name} на русском языке, дружелюбно и по-деловому.
 
-Твои задачи:
-1. Принимать дела в свободной форме. Например:
-   • "завтра в 10 встреча с врачом"
-   • "в пятницу сдать отчёт"
-   • "через 3 дня день рождения мамы"
-2. Понимать относительные даты ("сегодня", "завтра", "послезавтра",
-   "в пятницу", "через неделю") и переводить их в конкретные числа.
-3. Если пользователь говорит о деле с датой — вызвать инструмент create_task.
-4. Если дата не указана — уточнить, когда именно.
-5. На обычные вопросы и разговор отвечать дружески, без лишних формальностей.
+У тебя есть коллега Сэм — он отвечает за расписание и базу данных.
+Ты НЕ можешь сама записывать задачи или менять настройки — только Сэм.
 
-Сегодня: {today} ({weekday}).
+Когда нужно что-то сделать с данными:
+• Пользователь упоминает дело с датой/временем → напиши Сэму через contact_sam
+• Пользователь хочет изменить настройки (время сообщений, вкл/выкл вечернее) → напиши Сэму через contact_sam
 
-Когда добавляешь дело, скажи пользователю, что передала его Сэму.\
+Когда пишешь Сэму — формулируй чётко:
+- Что сделать
+- Дата в формате YYYY-MM-DD
+- Время в формате HH:MM (если есть)
+- Что именно изменить в настройках (если нужно)
+
+После получения отчёта от Сэма — кратко сообщи пользователю что сделано.
+На обычные вопросы отвечай сам(а), без Сэма.
+
+Сегодня: {today} ({weekday}).\
 """
 
 SAM_SYSTEM = """\
-Ты — Сэм, помощник по расписанию.
-Ты получаешь задачу и кратко подтверждаешь запись одним предложением на русском.\
+Ты — Сэм, менеджер расписания. Ты получаешь задания от Алисы и выполняешь их.
+
+Порядок работы:
+1. Прочитай задание от Алисы
+2. Используй нужный инструмент (create_task или update_settings)
+3. После выполнения дай чёткий отчёт на русском языке
+
+Отчёт должен содержать: что именно сделал, детали (дата, время, текст задачи или новые настройки).
+Пиши кратко, по-деловому. Одно-два предложения.\
 """
 
 
-# ──────────────────────────────────────────────
-# Описание инструмента для Claude
-# (именно так мы говорим Алисе: "вот что ты можешь сделать")
-# ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════
+#  ИНСТРУМЕНТЫ
+# ══════════════════════════════════════════════════
 
-CREATE_TASK_TOOL = {
-    "name": "create_task",
-    "description": "Записать дело в расписание пользователя.",
+# Инструмент Алисы — связаться с Сэмом
+CONTACT_SAM_TOOL = {
+    "name": "contact_sam",
+    "description": "Передать задание Сэму (менеджеру расписания). Использовать когда нужно записать дело или изменить настройки.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "date": {
+            "message": {
                 "type": "string",
-                "description": "Дата в формате YYYY-MM-DD",
-            },
-            "time": {
-                "type": "string",
-                "description": "Время в формате HH:MM. Передай null, если время не указано.",
-            },
-            "text": {
-                "type": "string",
-                "description": "Краткое описание дела (1–2 предложения).",
-            },
+                "description": (
+                    "Чёткое задание для Сэма. Укажи: что делать, дату (YYYY-MM-DD), "
+                    "время (HH:MM если есть), текст задачи или какие настройки менять."
+                ),
+            }
+        },
+        "required": ["message"],
+    },
+}
+
+# Инструменты Сэма — реальные операции с данными
+CREATE_TASK_TOOL = {
+    "name": "create_task",
+    "description": "Записать новое дело в расписание.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date": {"type": "string", "description": "Дата: YYYY-MM-DD"},
+            "time": {"type": "string", "description": "Время: HH:MM или null"},
+            "text": {"type": "string", "description": "Текст задачи"},
         },
         "required": ["date", "text"],
     },
 }
 
+UPDATE_SETTINGS_TOOL = {
+    "name": "update_settings",
+    "description": "Изменить настройки пользователя.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "morning_time": {
+                "type": "string",
+                "description": "Новое время утреннего сообщения HH:MM, или null если не меняется",
+            },
+            "evening_time": {
+                "type": "string",
+                "description": "Новое время вечернего сообщения HH:MM, или null если не меняется",
+            },
+            "evening_enabled": {
+                "type": "boolean",
+                "description": "True — включить вечернее, False — выключить, null — не менять",
+            },
+        },
+        "required": [],
+    },
+}
 
-# ──────────────────────────────────────────────
-# Основная функция: пользователь → Алиса → ответ
-# ──────────────────────────────────────────────
+SAM_TOOLS = [CREATE_TASK_TOOL, UPDATE_SETTINGS_TOOL]
 
-async def process_with_alice(user_id: int, user_message: str, user_name: str) -> str:
-    """Обрабатывает сообщение пользователя через Алису и возвращает текст ответа."""
 
-    # Формируем системный промпт с текущей датой
+# ══════════════════════════════════════════════════
+#  ОСНОВНЫЕ ФУНКЦИИ
+# ══════════════════════════════════════════════════
+
+async def process_with_alice(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
+    """Обёртка с таймаутом — если что-то зависло, вернёт ошибку вместо бесконечного ожидания."""
+    try:
+        return await asyncio.wait_for(
+            _process_with_alice(user_id, user_message, user_name, on_sam_message),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        return "Извини, что-то подвисло — попробуй написать ещё раз! 😅"
+
+
+async def _process_with_alice(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
+    """
+    Главная функция: принимает сообщение пользователя, отдаёт Алисе.
+    Если Алиса решает делегировать Сэму — запускает process_with_sam.
+    Возвращает финальный текст для отправки пользователю.
+    """
+
     today = datetime.now()
     weekdays = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-    system = ALICE_SYSTEM.format(
+    alice_system = ALICE_SYSTEM.format(
         name=user_name,
         today=today.strftime("%d.%m.%Y"),
         weekday=weekdays[today.weekday()],
     )
 
-    # Берём историю диалога этого пользователя
-    history = conversation_history.get(user_id, []).copy()
+    # История диалога Алисы с этим пользователем (из БД)
+    history = load_history(user_id, limit=MAX_HISTORY)
     history.append({"role": "user", "content": user_message})
 
-    # ── Шаг 1: первый запрос к Алисе ──
+    # ── Запрос к Алисе ──
     response = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=system,
+        system=alice_system,
         messages=history[-MAX_HISTORY:],
-        tools=[CREATE_TASK_TOOL],
+        tools=[CONTACT_SAM_TOOL],
     )
 
-    sam_note = ""  # подтверждение от Сэма (если задача создавалась)
-
     if response.stop_reason == "tool_use":
-        # Алиса решила создать задачу — обрабатываем вызов инструмента
-
-        # Достаём блок с вызовом инструмента из ответа
+        # Алиса хочет связаться с Сэмом
         tool_block = next(b for b in response.content if b.type == "tool_use")
-        task_data = tool_block.input
+        sam_task = tool_block.input["message"]
 
-        # Очищаем поле time: Claude иногда возвращает строку "null" вместо null
-        raw_time = task_data.get("time")
-        time_val = None if (raw_time is None or str(raw_time).lower() in ("null", "none", "")) else raw_time
+        # Сэм принял задание
+        if on_sam_message:
+            await on_sam_message("⚙️ *Сэм:* Принял, выполняю...")
 
-        # ── Шаг 2: Сэм записывает задачу в базу данных ──
-        task_id = add_task(
-            user_id=user_id,
-            date=task_data["date"],
-            text=task_data["text"],
-            time=time_val,
-        )
+        # ── Сэм выполняет задание и даёт отчёт ──
+        sam_report = await process_with_sam(user_id, sam_task)
 
-        # Сэм даёт короткое подтверждение
-        sam_note = await _sam_confirmation(task_data, task_id)
+        # Сэм отчитывается
+        if on_sam_message:
+            await on_sam_message(f"📋 *Сэм → Алисе:* {sam_report}")
 
-        # ── Шаг 3: возвращаем результат Алисе, чтобы она ответила пользователю ──
-        messages_with_result = history[-MAX_HISTORY:] + [
-            # Ответ Алисы с вызовом инструмента
+        # Возвращаем отчёт Сэма обратно Алисе
+        messages_with_sam = history[-MAX_HISTORY:] + [
             {"role": "assistant", "content": response.content},
-            # Результат выполнения инструмента
             {
                 "role": "user",
                 "content": [{
                     "type": "tool_result",
                     "tool_use_id": tool_block.id,
-                    "content": f"Задача успешно записана, id={task_id}.",
+                    "content": f"Отчёт Сэма: {sam_report}",
                 }],
             },
         ]
 
+        # Алиса формулирует финальный ответ пользователю на основе отчёта Сэма
+        # tools не передаём — она уже получила результат, просто отвечает пользователю
         final = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=512,
-            system=system,
-            messages=messages_with_result,
-            tools=[CREATE_TASK_TOOL],
+            system=alice_system,
+            messages=messages_with_sam,
         )
-        alice_reply = next((b.text for b in final.content if b.type == "text"), "Записала!")
+        alice_reply = next((b.text for b in final.content if b.type == "text"), "Готово!")
 
     else:
-        # Обычный ответ без инструментов
+        # Алиса отвечает напрямую (без Сэма)
         alice_reply = next((b.text for b in response.content if b.type == "text"), "")
 
-    # Сохраняем в историю только текстовый обмен (без технических деталей tool_use)
-    history.append({"role": "assistant", "content": alice_reply})
-    conversation_history[user_id] = history[-MAX_HISTORY:]
+    # Сохраняем оба сообщения в БД
+    save_message(user_id, "user", user_message)
+    save_message(user_id, "assistant", alice_reply)
 
-    # Финальный ответ: текст Алисы + подтверждение Сэма (если было)
-    if sam_note:
-        return f"{alice_reply}\n\n✅ *Сэм:* {sam_note}"
     return alice_reply
 
 
-async def _sam_confirmation(task_data: dict, task_id: int) -> str:
-    """Сэм кратко подтверждает запись задачи."""
-    date_str = task_data["date"]
-    time_str = task_data.get("time") or ""
-    text = task_data["text"]
+async def process_with_sam(user_id: int, alice_message: str) -> str:
+    """
+    Сэм получает задание от Алисы, выполняет его с помощью инструментов
+    и возвращает текстовый отчёт.
+    """
 
-    # Форматируем дату для красивого вывода
-    try:
-        d = datetime.strptime(date_str, "%Y-%m-%d")
-        date_pretty = d.strftime("%d.%m.%Y")
-    except ValueError:
-        date_pretty = date_str
-
-    when = f"{date_pretty}" + (f" в {time_str}" if time_str else "")
-    prompt = f'Задача «{text}» записана на {when} (id={task_id}). Подтверди одним предложением.'
-
+    # ── Сэм читает задание и решает что делать ──
     response = await client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=80,
+        max_tokens=1024,
         system=SAM_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": f"Задание от Алисы:\n{alice_message}"}],
+        tools=SAM_TOOLS,
     )
-    return next((b.text for b in response.content if b.type == "text"), "Записал!")
+
+    if response.stop_reason == "tool_use":
+        tool_block = next(b for b in response.content if b.type == "tool_use")
+        tool_name = tool_block.name
+        tool_data = tool_block.input
+
+        # ── Выполняем инструмент ──
+        if tool_name == "create_task":
+            raw_time = tool_data.get("time")
+            time_val = None if (raw_time is None or str(raw_time).lower() in ("null", "none", "")) else raw_time
+            task_id = add_task(
+                user_id=user_id,
+                date=tool_data["date"],
+                text=tool_data["text"],
+                time=time_val,
+            )
+            tool_result = f"Задача записана в базу данных, id={task_id}."
+
+        elif tool_name == "update_settings":
+            updates = {}
+            if tool_data.get("morning_time") not in (None, "null", ""):
+                updates["morning_time"] = tool_data["morning_time"]
+            if tool_data.get("evening_time") not in (None, "null", ""):
+                updates["evening_time"] = tool_data["evening_time"]
+            if tool_data.get("evening_enabled") is not None:
+                updates["evening_enabled"] = tool_data["evening_enabled"]
+            if updates:
+                save_settings(user_id, updates)
+            tool_result = f"Настройки обновлены: {updates}."
+
+        else:
+            tool_result = "Неизвестный инструмент."
+
+        # ── Сэм формулирует отчёт после выполнения ──
+        sam_messages = [
+            {"role": "user", "content": f"Задание от Алисы:\n{alice_message}"},
+            {"role": "assistant", "content": response.content},
+            {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": tool_block.id,
+                    "content": tool_result,
+                }],
+            },
+        ]
+
+        # tools не передаём — Сэм уже выполнил инструмент, просто пишет отчёт
+        report_response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            system=SAM_SYSTEM,
+            messages=sam_messages,
+        )
+        return next((b.text for b in report_response.content if b.type == "text"), "Выполнено.")
+
+    else:
+        # Сэм ответил текстом без инструмента (например, уточняет)
+        return next((b.text for b in response.content if b.type == "text"), "Выполнено.")
