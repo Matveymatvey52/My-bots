@@ -6,6 +6,7 @@
 
 import json
 import logging
+import random
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -108,7 +109,15 @@ async def _send_daily_summary(app: Application, user_id: int, date: str, name: s
                 task_lines.append(f"⏰ {t['time']} — {t['text']}")
             else:
                 task_lines.append(f"• {t['text']}")
-        text = header + "\n\n" + "\n\n".join(task_lines) + "\n\nНасыщенный день! 💪"
+        closing = random.choice([
+            "Насыщенный день! 💪",
+            "Всё успеешь! 🙌",
+            "Удачного дня! ⭐",
+            "Держи темп! 🚀",
+            "Ты справишься! 😊",
+            "Продуктивного дня! ✨",
+        ])
+        text = header + "\n\n" + "\n\n".join(task_lines) + f"\n\n{closing}"
 
     try:
         await app.bot.send_message(chat_id=user_id, text=text)
