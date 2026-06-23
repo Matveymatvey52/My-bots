@@ -47,6 +47,12 @@ def init_db():
         conn.commit()
 
 
+def clear_history(user_id: int):
+    with _conn() as conn:
+        conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
 def save_message(user_id: int, role: str, content: str):
     with _conn() as conn:
         conn.execute(

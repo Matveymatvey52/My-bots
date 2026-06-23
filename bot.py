@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 from agents import process_with_mary
-from db import get_tasks_for_day, get_upcoming_tasks, init_db
+from db import clear_history, get_tasks_for_day, get_upcoming_tasks, init_db
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
 
@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start — сбрасывает настройки и начинает онбординг заново."""
     user_id = update.effective_user.id
-    # Запоминаем, что онбординг начался и текущий шаг — вопрос имени
     save_settings(user_id, {"onboarding_step": "ask_name", "onboarding_done": False})
+    clear_history(user_id)
     await update.message.reply_text(
         "👋 Привет! Я *Мери* — твой личный помощник-планировщик.\n\n"
         "Вот что я умею:\n"
