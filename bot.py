@@ -250,19 +250,20 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ──────────────────────────────────────────────
 
 async def transcribe_voice(file_path: str) -> str:
-    """Отправляет аудиофайл в Groq Whisper и возвращает распознанный текст."""
-    from openai import AsyncOpenAI
-    groq_client = AsyncOpenAI(
-        api_key=os.environ["GROQ_API_KEY"],
-        base_url="https://api.groq.com/openai/v1",
+    """Отправляет аудиофайл в AssemblyAI и возвращает распознанный текст."""
+    import asyncio
+    import assemblyai as aai
+    aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
+    config = aai.TranscriptionConfig(language_code="ru")
+    transcriber = aai.Transcriber(config=config)
+    # AssemblyAI SDK синхронный — запускаем в отдельном потоке
+    loop = asyncio.get_event_loop()
+    transcript = await loop.run_in_executor(
+        None, lambda: transcriber.transcribe(file_path)
     )
-    with open(file_path, "rb") as audio_file:
-        response = await groq_client.audio.transcriptions.create(
-            model="whisper-large-v3-turbo",
-            file=audio_file,
-            language="ru",
-        )
-    return response.text
+    if transcript.status == aai.TranscriptStatus.error:
+        raise RuntimeError(transcript.error)
+    return transcript.text
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -275,9 +276,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Проверяем, что ключ Groq задан
-    if not os.environ.get("GROQ_API_KEY"):
+    if not os.environ.get("ASSEMBLYAI_API_KEY"):
         await update.message.reply_text(
-            "⚠️ Голосовые пока не настроены. Добавь GROQ_API_KEY в файл .env"
+            "⚠️ Голосовые пока не настроены. Добавь ASSEMBLYAI_API_KEY в переменные."
         )
         return
 
