@@ -188,7 +188,7 @@ SAM_TOOLS = [CREATE_TASK_TOOL, DELETE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS
 # ══════════════════════════════════════════════════
 
 async def process_with_mary(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
-    """Обёртка с таймаутом — если что-то зависло, вернёт ошибку вместо бесконечного ожидания."""
+    """Обёртка с таймаутом и обработкой ошибок API."""
     try:
         return await asyncio.wait_for(
             _process_with_mary(user_id, user_message, user_name, on_sam_message),
@@ -196,6 +196,13 @@ async def process_with_mary(user_id: int, user_message: str, user_name: str, on_
         )
     except asyncio.TimeoutError:
         return "Извини, что-то подвисло — попробуй написать ещё раз! 😅"
+    except Exception as e:
+        err = str(e)
+        if "529" in err or "overloaded" in err.lower():
+            return "Серверы немного перегружены — подожди секунду и попробуй ещё раз 🙏"
+        if "529" in err or "rate" in err.lower():
+            return "Слишком много запросов — попробуй через несколько секунд ⏳"
+        return "Что-то пошло не так — попробуй ещё раз 😔"
 
 
 async def _process_with_mary(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
