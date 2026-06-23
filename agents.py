@@ -124,6 +124,10 @@ UPDATE_SETTINGS_TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
+            "name": {
+                "type": "string",
+                "description": "Новое имя пользователя, или null если не меняется",
+            },
             "morning_time": {
                 "type": "string",
                 "description": "Новое время утреннего сообщения HH:MM, или null если не меняется",
@@ -276,6 +280,8 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
 
             elif tool_name == "update_settings":
                 updates = {}
+                if tool_data.get("name") not in (None, "null", ""):
+                    updates["name"] = tool_data["name"]
                 if tool_data.get("morning_time") not in (None, "null", ""):
                     updates["morning_time"] = tool_data["morning_time"]
                 if tool_data.get("evening_time") not in (None, "null", ""):

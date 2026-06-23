@@ -63,6 +63,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Как тебя зовут?")
 
 
+def _extract_name(text: str) -> str:
+    """Извлекает имя из фраз вроде 'меня зовут Матвей' → 'Матвей'."""
+    text = text.strip().rstrip(".")
+    for prefix in ["меня зовут ", "я ", "моё имя ", "мое имя ", "зовут меня ", "зовут "]:
+        if text.lower().startswith(prefix):
+            return text[len(prefix):].strip().capitalize()
+    return text
+
+
 # ──────────────────────────────────────────────
 # Обработчик всех текстовых сообщений
 # ──────────────────────────────────────────────
@@ -80,7 +89,7 @@ async def _route_text(
 
     # ── Шаг 1 онбординга: узнаём имя ──
     if step == "ask_name":
-        name = text
+        name = _extract_name(text)
         save_settings(user_id, {"name": name, "onboarding_step": "ask_morning"})
         await update.message.reply_text(
             f"Отлично, *{name}*! 😊\n\n"
