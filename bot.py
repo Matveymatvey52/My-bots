@@ -304,7 +304,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Показываем что распознали — полезно для проверки
     await update.message.reply_text(
-        f"🎤 Распознал: _{recognized_text}_",
+        f"🎤 Распознала: _{recognized_text}_",
         parse_mode="Markdown",
     )
 
