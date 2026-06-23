@@ -102,15 +102,13 @@ async def _send_daily_summary(app: Application, user_id: int, date: str, name: s
     if not tasks:
         text = f"{header}\n\nДел нет — можно отдыхать 🎉"
     else:
-        lines = [header, ""]
+        task_lines = []
         for t in tasks:
             if t["time"]:
-                lines.append(f"⏰ {t['time']} — {t['text']}")
+                task_lines.append(f"⏰ {t['time']} — {t['text']}")
             else:
-                lines.append(f"• {t['text']}")
-        lines.append("")
-        lines.append(f"Насыщенный день! 💪")
-        text = "\n".join(lines)
+                task_lines.append(f"• {t['text']}")
+        text = header + "\n\n" + "\n\n".join(task_lines) + "\n\nНасыщенный день! 💪"
 
     try:
         await app.bot.send_message(chat_id=user_id, text=text)

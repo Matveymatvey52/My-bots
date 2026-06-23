@@ -147,6 +147,16 @@ def get_tasks_needing_reminder(current_dt: datetime) -> list[dict]:
         return result
 
 
+def delete_task(user_id: int, task_id: int) -> bool:
+    with _conn() as conn:
+        cursor = conn.execute(
+            "UPDATE tasks SET status = 'deleted' WHERE id = ? AND user_id = ?",
+            (task_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def mark_reminder_sent(task_id: int):
     with _conn() as conn:
         conn.execute("UPDATE tasks SET reminder_sent = 1 WHERE id = ?", (task_id,))

@@ -191,14 +191,15 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "July","июля").replace("August","августа").replace("September","сентября").replace(
         "October","октября").replace("November","ноября").replace("December","декабря")
 
-    lines = [f"📋 *Дела на сегодня, {date_label}:*\n"]
+    task_lines = []
     for t in tasks:
         if t["time"]:
-            lines.append(f"⏰ {t['time']} — {t['text']}")
+            task_lines.append(f"⏰ {t['time']} — {t['text']}")
         else:
-            lines.append(f"• {t['text']}")
+            task_lines.append(f"• {t['text']}")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    text = f"📋 *Дела на сегодня, {date_label}:*\n\n" + "\n\n".join(task_lines)
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def all_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -223,21 +224,21 @@ async def all_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day_ru = {"Monday":"пн","Tuesday":"вт","Wednesday":"ср","Thursday":"чт",
               "Friday":"пт","Saturday":"сб","Sunday":"вс"}
 
-    lines = ["📅 *Все предстоящие дела:*\n"]
+    blocks = ["📅 *Все предстоящие дела:*"]
     for date, day_tasks in by_date.items():
         d = datetime.strptime(date, "%Y-%m-%d")
         month = month_ru[d.strftime("%B")]
         weekday = day_ru[d.strftime("%A")]
         date_str = f"{d.day} {month} ({weekday})"
-        lines.append(f"*{date_str}*")
+        day_lines = [f"*{date_str}*"]
         for t in day_tasks:
             if t["time"]:
-                lines.append(f"  ⏰ {t['time']} — {t['text']}")
+                day_lines.append(f"⏰ {t['time']} — {t['text']}")
             else:
-                lines.append(f"  • {t['text']}")
-        lines.append("")
+                day_lines.append(f"• {t['text']}")
+        blocks.append("\n\n".join(day_lines))
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n\n".join(blocks), parse_mode="Markdown")
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

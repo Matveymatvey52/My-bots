@@ -16,7 +16,7 @@ import os
 from datetime import datetime
 from typing import Optional
 from anthropic import AsyncAnthropic
-from db import add_task, get_tasks_for_day, get_upcoming_tasks, load_history, save_message
+from db import add_task, delete_task, get_tasks_for_day, get_upcoming_tasks, load_history, save_message
 from settings import save_settings
 
 # Клиент читает ANTHROPIC_API_KEY из переменных окружения
@@ -41,6 +41,7 @@ MARY_SYSTEM = """\
 • Пользователь хочет напоминание за N минут/часов → передай reminder_minutes в contact_sam
 • Пользователь упоминает несколько дел → передай ВСЕ задачи одним сообщением в contact_sam
 • Пользователь спрашивает про свои дела на день/завтра/другую дату → запроси через contact_sam
+• Пользователь хочет удалить/отменить задачу → передай через contact_sam
 • Пользователь хочет изменить настройки (имя, время утреннего/вечернего сообщения, вкл/выкл вечернее) → передай через contact_sam
 • Пользователь хочет сменить имя → это ВСЕГДА возможно, передай через contact_sam с новым именем
 
@@ -69,6 +70,7 @@ SAM_SYSTEM = """\
 
 Правила:
 - Несколько задач → вызывай create_task для каждой отдельно
+- Удалить задачу → сначала get_tasks чтобы найти id, потом delete_task(task_id)
 - В поле text ВСЕГДА добавляй в начало подходящий эмодзи по смыслу задачи:
   ✂️ стрижка/салон, 📞 звонок, 🤝 встреча, 🏥 врач/здоровье, 🎂 день рождения/праздник,
   🏋️ спорт/тренировка, 🍽️ обед/ужин/кафе, ✈️ поездка/перелёт, 💊 таблетки,
@@ -147,6 +149,18 @@ UPDATE_SETTINGS_TOOL = {
     },
 }
 
+DELETE_TASK_TOOL = {
+    "name": "delete_task",
+    "description": "Удалить (отменить) задачу из расписания по её id.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "integer", "description": "id задачи которую нужно удалить"},
+        },
+        "required": ["task_id"],
+    },
+}
+
 GET_TASKS_TOOL = {
     "name": "get_tasks",
     "description": "Получить список дел пользователя на указанную дату или все предстоящие.",
@@ -162,7 +176,7 @@ GET_TASKS_TOOL = {
     },
 }
 
-SAM_TOOLS = [CREATE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS_TOOL]
+SAM_TOOLS = [CREATE_TASK_TOOL, DELETE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS_TOOL]
 
 
 # ══════════════════════════════════════════════════
@@ -309,6 +323,11 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
                     save_settings(user_id, updates)
                 tool_result = f"Настройки обновлены: {updates}."
 
+            elif tool_name == "delete_task":
+                task_id = int(tool_data["task_id"])
+                ok = delete_task(user_id=user_id, task_id=task_id)
+                tool_result = f"Задача {task_id} удалена." if ok else f"Задача {task_id} не найдена."
+
             elif tool_name == "get_tasks":
                 date = tool_data.get("date", "")
                 if date == "upcoming":
@@ -321,7 +340,7 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
                     lines = []
                     for t in tasks:
                         prefix = f"⏰ {t['time']} — " if t["time"] else "• "
-                        lines.append(f"{prefix}{t['text']}")
+                        lines.append(f"[id={t['id']}] {prefix}{t['text']}")
                     tool_result = "\n".join(lines)
 
             else:
