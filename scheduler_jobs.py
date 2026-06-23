@@ -17,7 +17,7 @@ def now_msk() -> datetime:
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application
 
-from db import get_tasks_for_day, get_tasks_needing_reminder, get_tasks_due_now, mark_reminder_sent, mark_time_notified
+from db import get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
 from settings import SETTINGS_DIR, get_all_user_ids, load_settings
 
 logger = logging.getLogger(__name__)
@@ -65,16 +65,8 @@ async def send_scheduled_messages(app: Application):
         except Exception as e:
             logger.error("Не удалось отправить напоминание %d: %s", task["id"], e)
 
-    # ── Уведомление в момент события ──
-    for task in get_tasks_due_now(now):
-        text = f"🔔 *{task['time']} — {task['text']}*\nВремя!"
-        try:
-            await app.bot.send_message(chat_id=task["user_id"], text=text, parse_mode="Markdown")
-            mark_time_notified(task["id"])
-        except Exception as e:
-            logger.error("Не удалось отправить уведомление о событии %d: %s", task["id"], e)
 
-    for user_id in get_all_user_ids():
+for user_id in get_all_user_ids():
         s = load_settings(user_id)
 
         # Пропускаем тех, кто не закончил настройку
