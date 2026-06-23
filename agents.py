@@ -13,8 +13,13 @@
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+MSK = timezone(timedelta(hours=3))
+
+def now_msk() -> datetime:
+    return datetime.now(tz=MSK)
 from anthropic import AsyncAnthropic
 from db import add_task, delete_task, get_tasks_for_day, get_upcoming_tasks, load_history, save_message
 from settings import save_settings
@@ -212,7 +217,7 @@ async def _process_with_mary(user_id: int, user_message: str, user_name: str, on
     Возвращает финальный текст для отправки пользователю.
     """
 
-    today = datetime.now()
+    today = now_msk()
     weekdays = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
     mary_system = MARY_SYSTEM.format(
         name=user_name,

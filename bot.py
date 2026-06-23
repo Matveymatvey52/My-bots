@@ -8,7 +8,12 @@
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+MSK = timezone(timedelta(hours=3))
+
+def now_msk() -> datetime:
+    return datetime.now(tz=MSK)
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -150,7 +155,7 @@ async def _route_text(
         name = settings.get("name", "")
         await context.bot.send_chat_action(update.effective_chat.id, "typing")
 
-        ts = datetime.now().strftime("%d.%m %H:%M")
+        ts = now_msk().strftime("%d.%m %H:%M")
         await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* {voice_prefix}{text}")
 
         async def send_sam(sam_text: str):
@@ -177,14 +182,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/tasks — показывает дела на сегодня."""
     user_id = update.effective_user.id
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = now_msk().strftime("%Y-%m-%d")
     tasks = get_tasks_for_day(user_id, today)
 
     if not tasks:
         await update.message.reply_text("На сегодня дел нет 🎉 Отдыхай!")
         return
 
-    d = datetime.now()
+    d = now_msk()
     date_label = d.strftime("%-d %B").replace(
         "January","января").replace("February","февраля").replace("March","марта").replace(
         "April","апреля").replace("May","мая").replace("June","июня").replace(

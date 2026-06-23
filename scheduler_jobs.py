@@ -7,7 +7,12 @@
 import json
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+MSK = timezone(timedelta(hours=3))
+
+def now_msk() -> datetime:
+    return datetime.now(tz=MSK)
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application
@@ -44,7 +49,7 @@ async def send_scheduled_messages(app: Application):
     Важно: используется время сервера/компьютера, на котором запущен бот.
     Если запускаешь локально — всё совпадёт с твоим часовым поясом.
     """
-    now = datetime.now()
+    now = now_msk()
     current_time = now.strftime("%H:%M")  # например, "08:00"
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
