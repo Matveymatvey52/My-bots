@@ -16,7 +16,7 @@ import os
 from datetime import datetime
 from typing import Optional
 from anthropic import AsyncAnthropic
-from db import add_task, load_history, save_message
+from db import add_task, get_tasks_for_day, get_upcoming_tasks, load_history, save_message
 from settings import save_settings
 
 # Клиент читает ANTHROPIC_API_KEY из переменных окружения
@@ -40,6 +40,7 @@ MARY_SYSTEM = """\
 • Пользователь упоминает дело с датой/временем → запиши через contact_sam
 • Пользователь хочет напоминание за N минут/часов → передай reminder_minutes в contact_sam
 • Пользователь упоминает несколько дел → передай ВСЕ задачи одним сообщением в contact_sam
+• Пользователь спрашивает про свои дела на день/завтра/другую дату → запроси через contact_sam
 • Пользователь хочет изменить настройки (имя, время утреннего/вечернего сообщения, вкл/выкл вечернее) → передай через contact_sam
 • Пользователь хочет сменить имя → это ВСЕГДА возможно, передай через contact_sam с новым именем
 
@@ -146,7 +147,22 @@ UPDATE_SETTINGS_TOOL = {
     },
 }
 
-SAM_TOOLS = [CREATE_TASK_TOOL, UPDATE_SETTINGS_TOOL]
+GET_TASKS_TOOL = {
+    "name": "get_tasks",
+    "description": "Получить список дел пользователя на указанную дату или все предстоящие.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": "Дата YYYY-MM-DD — дела на этот день. Или 'upcoming' — все предстоящие дела.",
+            }
+        },
+        "required": ["date"],
+    },
+}
+
+SAM_TOOLS = [CREATE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS_TOOL]
 
 
 # ══════════════════════════════════════════════════
@@ -292,6 +308,21 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
                 if updates:
                     save_settings(user_id, updates)
                 tool_result = f"Настройки обновлены: {updates}."
+
+            elif tool_name == "get_tasks":
+                date = tool_data.get("date", "")
+                if date == "upcoming":
+                    tasks = get_upcoming_tasks(user_id)
+                else:
+                    tasks = get_tasks_for_day(user_id, date)
+                if not tasks:
+                    tool_result = "Дел нет."
+                else:
+                    lines = []
+                    for t in tasks:
+                        prefix = f"⏰ {t['time']} — " if t["time"] else "• "
+                        lines.append(f"{prefix}{t['text']}")
+                    tool_result = "\n".join(lines)
 
             else:
                 tool_result = "Неизвестный инструмент."
