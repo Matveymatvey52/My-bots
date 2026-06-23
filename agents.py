@@ -286,19 +286,22 @@ async def _process_with_mary(user_id: int, user_message: str, user_name: str, on
 async def process_with_sam(user_id: int, mary_message: str) -> str:
     """
     Сэм получает задание от Мери, выполняет его с помощью инструментов
-    и возвращает текстовый отчёт.
+    и возвращает текстовый отчёт. Поддерживает несколько раундов инструментов.
     """
+    messages = [{"role": "user", "content": f"Задание от Мери:\n{mary_message}"}]
 
-    # ── Сэм читает задание и решает что делать ──
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        system=SAM_SYSTEM,
-        messages=[{"role": "user", "content": f"Задание от Мери:\n{mary_message}"}],
-        tools=SAM_TOOLS,
-    )
+    for _ in range(6):  # максимум 6 раундов
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=SAM_SYSTEM,
+            messages=messages,
+            tools=SAM_TOOLS,
+        )
 
-    if response.stop_reason == "tool_use":
+        if response.stop_reason != "tool_use":
+            return next((b.text for b in response.content if b.type == "text"), "Выполнено.")
+
         tool_blocks = [b for b in response.content if b.type == "tool_use"]
         tool_results = []
 
@@ -363,19 +366,7 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
                 "content": tool_result,
             })
 
-        sam_messages = [
-            {"role": "user", "content": f"Задание от Мери:\n{mary_message}"},
-            {"role": "assistant", "content": response.content},
-            {"role": "user", "content": tool_results},
-        ]
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": tool_results})
 
-        report_response = await client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=256,
-            system=SAM_SYSTEM,
-            messages=sam_messages,
-        )
-        return next((b.text for b in report_response.content if b.type == "text"), "Выполнено.")
-
-    else:
-        return next((b.text for b in response.content if b.type == "text"), "Выполнено.")
+    return "Выполнено."
