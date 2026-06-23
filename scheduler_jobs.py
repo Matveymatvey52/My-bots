@@ -17,7 +17,7 @@ def now_msk() -> datetime:
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application
 
-from db import get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
+from db import get_tasks_for_day, get_tasks_needing_reminder, get_tasks_due_now, mark_reminder_sent, mark_time_notified
 from settings import SETTINGS_DIR, get_all_user_ids, load_settings
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ async def send_scheduled_messages(app: Application):
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # ── Напоминания о предстоящих событиях ──
+    # ── Предварительные напоминания ──
     for task in get_tasks_needing_reminder(now):
         mins = task["reminder_minutes"]
         label = f"через {mins} мин" if mins < 60 else f"через {mins // 60} ч"
@@ -64,6 +64,15 @@ async def send_scheduled_messages(app: Application):
             mark_reminder_sent(task["id"])
         except Exception as e:
             logger.error("Не удалось отправить напоминание %d: %s", task["id"], e)
+
+    # ── Уведомление в момент события ──
+    for task in get_tasks_due_now(now):
+        text = f"🔔 *{task['time']} — {task['text']}*\nВремя!"
+        try:
+            await app.bot.send_message(chat_id=task["user_id"], text=text, parse_mode="Markdown")
+            mark_time_notified(task["id"])
+        except Exception as e:
+            logger.error("Не удалось отправить уведомление о событии %d: %s", task["id"], e)
 
     for user_id in get_all_user_ids():
         s = load_settings(user_id)

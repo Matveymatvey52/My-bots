@@ -30,6 +30,7 @@ def init_db():
         for col, definition in [
             ("reminder_minutes", "INTEGER DEFAULT NULL"),
             ("reminder_sent", "INTEGER DEFAULT 0"),
+            ("time_notified", "INTEGER DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {definition}")
@@ -160,4 +161,24 @@ def delete_task(user_id: int, task_id: int) -> bool:
 def mark_reminder_sent(task_id: int):
     with _conn() as conn:
         conn.execute("UPDATE tasks SET reminder_sent = 1 WHERE id = ?", (task_id,))
+        conn.commit()
+
+
+def get_tasks_due_now(current_dt: datetime) -> list[dict]:
+    """Задачи, время которых наступило прямо сейчас (для уведомления в момент события)."""
+    today = current_dt.strftime("%Y-%m-%d")
+    current_time_str = current_dt.strftime("%H:%M")
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT * FROM tasks
+               WHERE date = ? AND time = ? AND status = 'active' AND time_notified = 0""",
+            (today, current_time_str),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def mark_time_notified(task_id: int):
+    with _conn() as conn:
+        conn.execute("UPDATE tasks SET time_notified = 1 WHERE id = ?", (task_id,))
         conn.commit()
