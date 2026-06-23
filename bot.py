@@ -20,7 +20,7 @@ from telegram.ext import (
     filters,
 )
 
-from agents import process_with_alice
+from agents import process_with_mary
 from db import get_tasks_for_day, get_upcoming_tasks, init_db
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
@@ -46,7 +46,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Запоминаем, что онбординг начался и текущий шаг — вопрос имени
     save_settings(user_id, {"onboarding_step": "ask_name", "onboarding_done": False})
     await update.message.reply_text(
-        "👋 Привет! Я *Алиса* — твой личный помощник-планировщик.\n\n"
+        "👋 Привет! Я *Мери* — твой личный помощник-планировщик.\n\n"
         "Вот что я умею:\n"
         "• 📝 Записывать твои дела и встречи — просто скажи мне о них\n"
         "• ⏰ Напоминать о событии за час, за 15 минут — когда скажешь\n"
@@ -68,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Главный обработчик. Смотрит, на каком шаге онбординга пользователь,
-    и либо задаёт следующий вопрос настройки, либо отправляет сообщение Алисе."""
+    и либо задаёт следующий вопрос настройки, либо отправляет сообщение Мери."""
 
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -133,7 +133,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
 
-    # ── Обычный режим: передаём сообщение Алисе ──
+    # ── Обычный режим: передаём сообщение Мери ──
     elif is_onboarding_done(user_id):
         name = settings.get("name", "")
         await context.bot.send_chat_action(update.effective_chat.id, "typing")
@@ -144,9 +144,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async def send_sam(sam_text: str):
             await log_to_chat(context.bot, sam_text)
 
-        reply = await process_with_alice(user_id, text, name, on_sam_message=send_sam)
+        reply = await process_with_mary(user_id, text, name, on_sam_message=send_sam)
         await update.message.reply_text(reply, parse_mode="Markdown")
-        await log_to_chat(context.bot, f"🤖 *Алиса:* {reply}")
+        await log_to_chat(context.bot, f"🤖 *Мери:* {reply}")
 
     else:
         # Пользователь ещё не запустил /start
@@ -268,7 +268,7 @@ async def transcribe_voice(file_path: str) -> str:
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик голосовых сообщений.
-    Скачивает аудио → Whisper → текст → Алиса → ответ."""
+    Скачивает аудио → Whisper → текст → Мери → ответ."""
     user_id = update.effective_user.id
 
     if not is_onboarding_done(user_id):
@@ -308,7 +308,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
     )
 
-    # Дальше — как обычное текстовое сообщение: передаём Алисе
+    # Дальше — как обычное текстовое сообщение: передаём Мери
     name = load_settings(user_id).get("name", "")
 
     ts = datetime.now().strftime("%d.%m %H:%M")
@@ -317,9 +317,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async def send_sam_voice(sam_text: str):
         await log_to_chat(context.bot, sam_text)
 
-    reply = await process_with_alice(user_id, recognized_text, name, on_sam_message=send_sam_voice)
+    reply = await process_with_mary(user_id, recognized_text, name, on_sam_message=send_sam_voice)
     await update.message.reply_text(reply, parse_mode="Markdown")
-    await log_to_chat(context.bot, f"🤖 *Алиса:* {reply}")
+    await log_to_chat(context.bot, f"🤖 *Мери:* {reply}")
 
 
 async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

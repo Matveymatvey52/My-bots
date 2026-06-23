@@ -1,15 +1,15 @@
-# agents.py — Алиса и Сэм.
+# agents.py — Мери и Сэм.
 #
 # АЛИСА — администратор. Общается с пользователем.
 #   Сама НЕ трогает базу данных — только пишет задание Сэму.
 #   Инструмент: contact_sam(message) — отправить задание Сэму.
 #
-# СЭМ — менеджер расписания. Получает задание от Алисы.
+# СЭМ — менеджер расписания. Получает задание от Мери.
 #   Выполняет его с помощью инструментов (create_task, update_settings).
-#   Возвращает письменный отчёт → Алиса передаёт его пользователю.
+#   Возвращает письменный отчёт → Мери передаёт его пользователю.
 #
 # Схема:
-#   Пользователь → [Алиса] → contact_sam → [Сэм] → инструменты → отчёт → [Алиса] → Пользователь
+#   Пользователь → [Мери] → contact_sam → [Сэм] → инструменты → отчёт → [Мери] → Пользователь
 
 import asyncio
 import os
@@ -29,8 +29,8 @@ MAX_HISTORY = 20
 #  СИСТЕМНЫЕ ПРОМПТЫ
 # ══════════════════════════════════════════════════
 
-ALICE_SYSTEM = """\
-Ты — Алиса, администратор-помощник в Telegram-боте.
+MARY_SYSTEM = """\
+Ты — Мери, администратор-помощник в Telegram-боте.
 Ты общаешься с пользователем по имени {name} на русском языке, дружелюбно и по-деловому.
 
 У тебя есть внутренний механизм записи — ты используешь contact_sam для работы с данными.
@@ -63,7 +63,7 @@ ALICE_SYSTEM = """\
 """
 
 SAM_SYSTEM = """\
-Ты — Сэм, менеджер расписания. Получаешь задания от Алисы, выполняешь их инструментами.
+Ты — Сэм, менеджер расписания. Получаешь задания от Мери, выполняешь их инструментами.
 
 Правила:
 - Несколько задач → вызывай create_task для каждой отдельно
@@ -80,7 +80,7 @@ SAM_SYSTEM = """\
 #  ИНСТРУМЕНТЫ
 # ══════════════════════════════════════════════════
 
-# Инструмент Алисы — связаться с Сэмом
+# Инструмент Мери — связаться с Сэмом
 CONTACT_SAM_TOOL = {
     "name": "contact_sam",
     "description": "Передать задание Сэму (менеджеру расписания). Использовать когда нужно записать дело или изменить настройки.",
@@ -148,47 +148,47 @@ SAM_TOOLS = [CREATE_TASK_TOOL, UPDATE_SETTINGS_TOOL]
 #  ОСНОВНЫЕ ФУНКЦИИ
 # ══════════════════════════════════════════════════
 
-async def process_with_alice(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
+async def process_with_mary(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
     """Обёртка с таймаутом — если что-то зависло, вернёт ошибку вместо бесконечного ожидания."""
     try:
         return await asyncio.wait_for(
-            _process_with_alice(user_id, user_message, user_name, on_sam_message),
+            _process_with_mary(user_id, user_message, user_name, on_sam_message),
             timeout=60.0,
         )
     except asyncio.TimeoutError:
         return "Извини, что-то подвисло — попробуй написать ещё раз! 😅"
 
 
-async def _process_with_alice(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
+async def _process_with_mary(user_id: int, user_message: str, user_name: str, on_sam_message=None) -> str:
     """
-    Главная функция: принимает сообщение пользователя, отдаёт Алисе.
-    Если Алиса решает делегировать Сэму — запускает process_with_sam.
+    Главная функция: принимает сообщение пользователя, отдаёт Мери.
+    Если Мери решает делегировать Сэму — запускает process_with_sam.
     Возвращает финальный текст для отправки пользователю.
     """
 
     today = datetime.now()
     weekdays = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-    alice_system = ALICE_SYSTEM.format(
+    mary_system = MARY_SYSTEM.format(
         name=user_name,
         today=today.strftime("%d.%m.%Y"),
         weekday=weekdays[today.weekday()],
     )
 
-    # История диалога Алисы с этим пользователем (из БД)
+    # История диалога Мери с этим пользователем (из БД)
     history = load_history(user_id, limit=MAX_HISTORY)
     history.append({"role": "user", "content": user_message})
 
-    # ── Запрос к Алисе ──
+    # ── Запрос к Мери ──
     response = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=alice_system,
+        system=mary_system,
         messages=history[-MAX_HISTORY:],
         tools=[CONTACT_SAM_TOOL],
     )
 
     if response.stop_reason == "tool_use":
-        # Алиса хочет связаться с Сэмом
+        # Мери хочет связаться с Сэмом
         tool_block = next(b for b in response.content if b.type == "tool_use")
         sam_task = tool_block.input["message"]
 
@@ -201,9 +201,9 @@ async def _process_with_alice(user_id: int, user_message: str, user_name: str, o
 
         # Сэм отчитывается
         if on_sam_message:
-            await on_sam_message(f"📋 *Сэм → Алисе:* {sam_report}")
+            await on_sam_message(f"📋 *Сэм → Мери:* {sam_report}")
 
-        # Возвращаем отчёт Сэма обратно Алисе
+        # Возвращаем отчёт Сэма обратно Мери
         messages_with_sam = history[-MAX_HISTORY:] + [
             {"role": "assistant", "content": response.content},
             {
@@ -216,30 +216,30 @@ async def _process_with_alice(user_id: int, user_message: str, user_name: str, o
             },
         ]
 
-        # Алиса формулирует финальный ответ пользователю на основе отчёта Сэма
+        # Мери формулирует финальный ответ пользователю на основе отчёта Сэма
         # tools не передаём — она уже получила результат, просто отвечает пользователю
         final = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=512,
-            system=alice_system,
+            system=mary_system,
             messages=messages_with_sam,
         )
-        alice_reply = next((b.text for b in final.content if b.type == "text"), "Готово!")
+        mary_reply = next((b.text for b in final.content if b.type == "text"), "Готово!")
 
     else:
-        # Алиса отвечает напрямую (без Сэма)
-        alice_reply = next((b.text for b in response.content if b.type == "text"), "")
+        # Мери отвечает напрямую (без Сэма)
+        mary_reply = next((b.text for b in response.content if b.type == "text"), "")
 
     # Сохраняем оба сообщения в БД
     save_message(user_id, "user", user_message)
-    save_message(user_id, "assistant", alice_reply)
+    save_message(user_id, "assistant", mary_reply)
 
-    return alice_reply
+    return mary_reply
 
 
-async def process_with_sam(user_id: int, alice_message: str) -> str:
+async def process_with_sam(user_id: int, mary_message: str) -> str:
     """
-    Сэм получает задание от Алисы, выполняет его с помощью инструментов
+    Сэм получает задание от Мери, выполняет его с помощью инструментов
     и возвращает текстовый отчёт.
     """
 
@@ -248,7 +248,7 @@ async def process_with_sam(user_id: int, alice_message: str) -> str:
         model="claude-sonnet-4-6",
         max_tokens=1024,
         system=SAM_SYSTEM,
-        messages=[{"role": "user", "content": f"Задание от Алисы:\n{alice_message}"}],
+        messages=[{"role": "user", "content": f"Задание от Мери:\n{mary_message}"}],
         tools=SAM_TOOLS,
     )
 
@@ -296,7 +296,7 @@ async def process_with_sam(user_id: int, alice_message: str) -> str:
             })
 
         sam_messages = [
-            {"role": "user", "content": f"Задание от Алисы:\n{alice_message}"},
+            {"role": "user", "content": f"Задание от Мери:\n{mary_message}"},
             {"role": "assistant", "content": response.content},
             {"role": "user", "content": tool_results},
         ]
