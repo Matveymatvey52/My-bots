@@ -67,12 +67,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обработчик всех текстовых сообщений
 # ──────────────────────────────────────────────
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Главный обработчик. Смотрит, на каком шаге онбординга пользователь,
-    и либо задаёт следующий вопрос настройки, либо отправляет сообщение Мери."""
-
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
+async def _route_text(
+    user_id: int,
+    text: str,
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    voice_prefix: str = "",
+):
+    """Роутинг текста (из сообщения или голосового) через онбординг или основной режим."""
     settings = load_settings(user_id)
     step = settings.get("onboarding_step")
 
@@ -90,7 +92,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Шаг 2 онбординга: время утреннего сообщения ──
     elif step == "ask_morning":
         try:
-            datetime.strptime(text, "%H:%M")  # проверяем формат
+            datetime.strptime(text, "%H:%M")
         except ValueError:
             await update.message.reply_text(
                 "Не понял формат 🤔 Напиши время так: `08:00`",
@@ -115,7 +117,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "onboarding_step": None,
         }
         if want_evening:
-            updates["evening_time"] = "20:00"  # время по умолчанию
+            updates["evening_time"] = "20:00"
 
         save_settings(user_id, updates)
         name = settings.get("name", "")
@@ -140,7 +142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(update.effective_chat.id, "typing")
 
         ts = datetime.now().strftime("%d.%m %H:%M")
-        await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* {text}")
+        await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* {voice_prefix}{text}")
 
         async def send_sam(sam_text: str):
             await log_to_chat(context.bot, sam_text)
@@ -150,8 +152,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await log_to_chat(context.bot, f"🤖 *Мери:* {reply}")
 
     else:
-        # Пользователь ещё не запустил /start
         await update.message.reply_text("Напиши /start чтобы начать! 👋")
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    await _route_text(user_id, text, update, context)
 
 
 # ──────────────────────────────────────────────
@@ -268,15 +275,14 @@ async def transcribe_voice(file_path: str) -> str:
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик голосовых сообщений.
-    Скачивает аудио → Whisper → текст → Мери → ответ."""
+    """Обработчик голосовых сообщений — работает и во время онбординга, и после."""
     user_id = update.effective_user.id
 
-    if not is_onboarding_done(user_id):
-        await update.message.reply_text("Сначала напиши /start! 👋")
+    # Отклоняем только если /start вообще не запускался
+    if not load_settings(user_id):
+        await update.message.reply_text("Напиши /start чтобы начать! 👋")
         return
 
-    # Проверяем, что ключ Groq задан
     if not os.environ.get("ASSEMBLYAI_API_KEY"):
         await update.message.reply_text(
             "⚠️ Голосовые пока не настроены. Добавь ASSEMBLYAI_API_KEY в переменные."
@@ -285,7 +291,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_chat_action(update.effective_chat.id, "typing")
 
-    # Скачиваем голосовое во временный файл
     voice = update.message.voice
     tg_file = await context.bot.get_file(voice.file_id)
 
@@ -293,34 +298,21 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tmp_path = tmp.name
     await tg_file.download_to_drive(tmp_path)
 
-    # Транскрибируем через Whisper
     try:
         recognized_text = await transcribe_voice(tmp_path)
     except Exception as e:
         logger.error("Ошибка транскрипции: %s", e)
-        await update.message.reply_text("Не удалось распознать голосовое 😔 Попробуй отправить новое или написать текстом.")
+        await update.message.reply_text("Не удалось распознать голосовое 😔 Попробуй ещё раз или напиши текстом.")
         return
     finally:
-        os.unlink(tmp_path)  # удаляем временный файл
+        os.unlink(tmp_path)
 
-    # Показываем что распознали — полезно для проверки
     await update.message.reply_text(
         f"🎤 Распознала: _{recognized_text}_",
         parse_mode="Markdown",
     )
 
-    # Дальше — как обычное текстовое сообщение: передаём Мери
-    name = load_settings(user_id).get("name", "")
-
-    ts = datetime.now().strftime("%d.%m %H:%M")
-    await log_to_chat(context.bot, f"🕐 {ts}\n👤 *{name}:* 🎤 {recognized_text}")
-
-    async def send_sam_voice(sam_text: str):
-        await log_to_chat(context.bot, sam_text)
-
-    reply = await process_with_mary(user_id, recognized_text, name, on_sam_message=send_sam_voice)
-    await update.message.reply_text(reply, parse_mode="Markdown")
-    await log_to_chat(context.bot, f"🤖 *Мери:* {reply}")
+    await _route_text(user_id, recognized_text, update, context, voice_prefix="🎤 ")
 
 
 async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
