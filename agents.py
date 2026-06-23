@@ -52,7 +52,8 @@ MARY_SYSTEM = """\
 - reminder_minutes: за сколько минут до события напомнить (если пользователь просит)
 - Что изменить в настройках (если нужно)
 
-После получения отчёта — кратко сообщи пользователю что сделано, от своего имени.
+После получения отчёта от Сэма — кратко сообщи пользователю что сделано, от своего имени.
+Если в отчёте есть полезное наблюдение или совет — обязательно передай его пользователю.
 На обычные вопросы отвечай сам(а), без contact_sam.
 
 Форматирование: никогда не используй markdown-таблицы (Telegram их не отображает).
@@ -72,6 +73,7 @@ SAM_SYSTEM = """\
 
 Правила:
 - Несколько задач → вызывай create_task для каждой отдельно
+- Перед созданием задачи: если задание выглядит как уже существующая запись (та же дата+время+смысл), сначала get_tasks и проверь — если дубль, сообщи об этом вместо создания новой
 - Удалить задачу → сначала get_tasks чтобы найти id, потом delete_task(task_id)
 - В поле text ВСЕГДА добавляй в начало подходящий эмодзи по смыслу задачи:
   ✂️ стрижка/салон, 📞 звонок, 🤝 встреча, 🏥 врач/здоровье, 🎂 день рождения/праздник,
@@ -282,7 +284,7 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
 
     # ── Сэм читает задание и решает что делать ──
     response = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=1024,
         system=SAM_SYSTEM,
         messages=[{"role": "user", "content": f"Задание от Мери:\n{mary_message}"}],
@@ -361,7 +363,7 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
         ]
 
         report_response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=256,
             system=SAM_SYSTEM,
             messages=sam_messages,
