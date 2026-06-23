@@ -65,8 +65,7 @@ async def send_scheduled_messages(app: Application):
         except Exception as e:
             logger.error("Не удалось отправить напоминание %d: %s", task["id"], e)
 
-
-for user_id in get_all_user_ids():
+    for user_id in get_all_user_ids():
         s = load_settings(user_id)
 
         # Пропускаем тех, кто не закончил настройку
