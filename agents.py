@@ -291,7 +291,7 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
 
     # ── Сэм читает задание и решает что делать ──
     response = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         system=SAM_SYSTEM,
         messages=[{"role": "user", "content": f"Задание от Мери:\n{mary_message}"}],
@@ -370,7 +370,7 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
         ]
 
         report_response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=256,
             system=SAM_SYSTEM,
             messages=sam_messages,
