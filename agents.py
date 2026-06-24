@@ -289,17 +289,27 @@ async def _process_with_mary(user_id: int, user_message: str, user_name: str, on
     return mary_reply
 
 
-async def generate_business_reply(owner_name: str, sender_name: str, conversation: list[dict]) -> str:
+async def generate_business_reply(
+    owner_name: str,
+    sender_name: str,
+    conversation: list[dict],
+    tasks_context: str = "",
+) -> str:
     """
     Генерирует ответ от имени владельца (owner_name) на сообщение от sender_name.
-    conversation — список {"role": "user"/"assistant", "content": "..."} для контекста переписки.
+    conversation — список {"role": "user"/"assistant", "content": "..."}.
+    tasks_context — текстовый дамп актуальных задач из расписания.
     """
+    schedule_block = (
+        f"\n\nТвоё расписание (используй эти данные если спросят о планах):\n{tasks_context}"
+        if tasks_context else ""
+    )
     system = (
-        f"Ты ведёшь переписку от лица {owner_name}. "
+        f"Ты ведёшь переписку от лица {owner_name}.{schedule_block}\n\n"
         f"Отвечай коротко, живо, по-дружески — как обычный человек в переписке. "
         f"Никогда не упоминай что ты ИИ или бот. "
-        f"Важно: не выдумывай факты о планах, встречах, местах или событиях — "
-        f"если не знаешь точно, отвечай уклончиво ('посмотрим', 'не уверен пока', 'надо подумать'). "
+        f"Если спрашивают о планах — используй данные расписания выше. "
+        f"Если данных нет на нужную дату — скажи что пока ничего не запланировано. "
         f"Пиши коротко — 1-2 предложения максимум. "
         f"Отвечай на русском если собеседник пишет по-русски."
     )

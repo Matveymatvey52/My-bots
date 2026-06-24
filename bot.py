@@ -453,8 +453,19 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
         if len(_biz_history[key]) > 20:
             _biz_history[key] = _biz_history[key][-20:]
 
+        # Подгружаем реальное расписание
+        upcoming = get_upcoming_tasks(user_id)
+        if upcoming:
+            task_lines = []
+            for t in upcoming[:15]:
+                time_str = f" в {t['time']}" if t["time"] else ""
+                task_lines.append(f"• {t['date']}{time_str}: {t['text']}")
+            tasks_context = "\n".join(task_lines)
+        else:
+            tasks_context = "Предстоящих задач нет."
+
         try:
-            reply = await generate_business_reply(name, sender, _biz_history[key])
+            reply = await generate_business_reply(name, sender, _biz_history[key], tasks_context)
             logger.info("Business reply to %s: %s", sender, reply[:80])
             # Добавляем ответ в историю
             _biz_history[key].append({"role": "assistant", "content": reply})
