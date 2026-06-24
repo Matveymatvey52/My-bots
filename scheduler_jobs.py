@@ -41,13 +41,18 @@ def setup_scheduler(app: Application):
     logger.info("Планировщик запущен")
 
 
+def _norm_time(t: str) -> str:
+    """Нормализует время к формату HH:MM (например '7:00' → '07:00')."""
+    try:
+        return datetime.strptime(t.strip(), "%H:%M").strftime("%H:%M")
+    except Exception:
+        return t
+
+
 async def send_scheduled_messages(app: Application):
     """
     Проверяет всех пользователей: не пора ли слать сообщение?
     Сравниваем текущее время (HH:MM) с настройками пользователя.
-
-    Важно: используется время сервера/компьютера, на котором запущен бот.
-    Если запускаешь локально — всё совпадёт с твоим часовым поясом.
     """
     now = now_msk()
     current_time = now.strftime("%H:%M")  # например, "08:00"
@@ -75,11 +80,11 @@ async def send_scheduled_messages(app: Application):
         name = s.get("name", "")
 
         # Утреннее сообщение — дела на сегодня
-        if s.get("morning_time") == current_time:
+        if _norm_time(s.get("morning_time", "")) == current_time:
             await _send_daily_summary(app, user_id, today, name, morning=True)
 
         # Вечернее сообщение — дела на завтра (если включено)
-        if s.get("evening_enabled") and s.get("evening_time", "20:00") == current_time:
+        if s.get("evening_enabled") and _norm_time(s.get("evening_time", "20:00")) == current_time:
             await _send_daily_summary(app, user_id, tomorrow, name, morning=False)
 
 

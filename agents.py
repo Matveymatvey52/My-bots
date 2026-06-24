@@ -332,13 +332,19 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
                 tool_result = f"Задача записана, id={task_id}."
 
             elif tool_name == "update_settings":
+                def _norm(t):
+                    try:
+                        return datetime.strptime(t.strip(), "%H:%M").strftime("%H:%M")
+                    except Exception:
+                        return t
+
                 updates = {}
                 if tool_data.get("name") not in (None, "null", ""):
                     updates["name"] = tool_data["name"]
                 if tool_data.get("morning_time") not in (None, "null", ""):
-                    updates["morning_time"] = tool_data["morning_time"]
+                    updates["morning_time"] = _norm(tool_data["morning_time"])
                 if tool_data.get("evening_time") not in (None, "null", ""):
-                    updates["evening_time"] = tool_data["evening_time"]
+                    updates["evening_time"] = _norm(tool_data["evening_time"])
                 if tool_data.get("evening_enabled") is not None:
                     updates["evening_enabled"] = tool_data["evening_enabled"]
                 if updates:

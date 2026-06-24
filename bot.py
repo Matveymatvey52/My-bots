@@ -106,7 +106,7 @@ async def _route_text(
     # ── Шаг 2 онбординга: время утреннего сообщения ──
     elif step == "ask_morning":
         try:
-            datetime.strptime(text, "%H:%M")
+            parsed = datetime.strptime(text.strip(), "%H:%M")
         except ValueError:
             await update.message.reply_text(
                 "Не понял формат 🤔 Напиши время так: `08:00`",
@@ -114,6 +114,7 @@ async def _route_text(
             )
             return
 
+        text = parsed.strftime("%H:%M")  # нормализуем: "7:00" → "07:00"
         save_settings(user_id, {"morning_time": text, "onboarding_step": "ask_evening"})
         await update.message.reply_text(
             f"Буду писать в *{text}* ☀️\n\n"
