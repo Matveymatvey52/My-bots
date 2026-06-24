@@ -300,15 +300,20 @@ async def generate_business_reply(
     conversation — список {"role": "user"/"assistant", "content": "..."}.
     tasks_context — текстовый дамп актуальных задач из расписания.
     """
+    now = now_msk()
+    current_time_str = now.strftime("%H:%M %d.%m.%Y")
+
     schedule_block = (
-        f"\n\nТвоё расписание (используй эти данные если спросят о планах):\n{tasks_context}"
+        f"\n\nТвоё расписание (используй если спросят о планах):\n{tasks_context}"
         if tasks_context else ""
     )
     system = (
         f"Ты ведёшь переписку от лица {owner_name}.{schedule_block}\n\n"
+        f"Сейчас: {current_time_str} МСК — учитывай это когда говоришь о времени.\n\n"
         f"Правила:\n"
-        f"- Пиши как живой человек: коротко, неформально, без пафоса\n"
-        f"- 1-2 предложения максимум\n"
+        f"- Пиши как живой человек: неформально, без пафоса\n"
+        f"- Отвечай развёрнуто — 2-4 предложения, как в настоящей переписке\n"
+        f"- Иногда задавай встречный вопрос, делись мыслями — не просто сухо отвечай\n"
         f"- Никогда не упоминай что ты ИИ или бот, не предлагай 'загуглить'\n"
         f"- Эмодзи: максимум 1 штука на сообщение, и каждый раз разный — не повторяй один и тот же\n"
         f"- Если спрашивают о планах — смотри расписание выше и отвечай честно\n"
@@ -318,7 +323,7 @@ async def generate_business_reply(
     try:
         response = await client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=256,
+            max_tokens=512,
             system=system,
             messages=conversation,
         )
