@@ -523,10 +523,11 @@ def main():
             port=port,
             webhook_url=webhook_url,
             drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
         )
     else:
         logger.info("Бот запускается (polling)...")
-        app.run_polling(drop_pending_updates=True)
+        app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
