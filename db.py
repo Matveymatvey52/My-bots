@@ -37,6 +37,13 @@ def init_db():
             except Exception:
                 pass
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS business_connections (
+                connection_id TEXT PRIMARY KEY,
+                user_id       INTEGER NOT NULL,
+                can_reply     INTEGER DEFAULT 0
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS sent_summaries (
                 user_id INTEGER NOT NULL,
                 date    TEXT    NOT NULL,
@@ -164,6 +171,31 @@ def delete_task(user_id: int, task_id: int) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+
+
+def save_business_connection(connection_id: str, user_id: int, can_reply: bool):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO business_connections (connection_id, user_id, can_reply) VALUES (?, ?, ?)",
+            (connection_id, user_id, int(can_reply)),
+        )
+        conn.commit()
+
+
+def delete_business_connection(connection_id: str):
+    with _conn() as conn:
+        conn.execute("DELETE FROM business_connections WHERE connection_id = ?", (connection_id,))
+        conn.commit()
+
+
+def get_user_by_connection(connection_id: str) -> Optional[dict]:
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT user_id, can_reply FROM business_connections WHERE connection_id = ?",
+            (connection_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def claim_summary_send(user_id: int, date: str, summary_type: str) -> bool:

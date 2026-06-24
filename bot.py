@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import (
     Application,
+    BusinessConnectionHandler,
     CommandHandler,
     ContextTypes,
     InlineQueryHandler,
@@ -27,7 +28,9 @@ from telegram.ext import (
 )
 
 from agents import process_with_mary
-from db import clear_history, get_bot_stats, get_tasks_for_day, get_upcoming_tasks, init_db
+from db import (clear_history, delete_business_connection, get_bot_stats,
+                get_tasks_for_day, get_upcoming_tasks, get_user_by_connection,
+                init_db, save_business_connection)
 from settings import get_all_user_ids
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
@@ -384,6 +387,67 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пользователь подключил/отключил бота как секретаря через Telegram Business."""
+    conn = update.business_connection
+    if conn.is_enabled:
+        save_business_connection(conn.id, conn.user.id, conn.can_reply)
+        await context.bot.send_message(
+            chat_id=conn.user.id,
+            text=(
+                "🤝 Бизнес-подключение активно!\n\n"
+                "Теперь я вижу твои входящие сообщения и буду уведомлять тебя "
+                "о важных из них прямо здесь.\n\n"
+                f"{'✅ Могу отвечать от твоего имени.' if conn.can_reply else '👁 Только чтение — отвечать не могу.'}"
+            ),
+        )
+    else:
+        delete_business_connection(conn.id)
+        await context.bot.send_message(
+            chat_id=conn.user.id,
+            text="🔌 Бизнес-подключение отключено.",
+        )
+
+
+async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Входящее сообщение в чате пользователя через Business-подключение."""
+    msg = update.business_message
+    if not msg or not msg.text:
+        return
+
+    conn_id = msg.business_connection_id
+    info = get_user_by_connection(conn_id)
+    if not info:
+        return
+
+    user_id = info["user_id"]
+    can_reply = bool(info["can_reply"])
+    sender = msg.from_user.first_name or msg.from_user.username or "Неизвестный"
+
+    # Уведомляем пользователя о входящем сообщении
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"📨 *{sender}:* {msg.text}",
+        parse_mode="Markdown",
+    )
+
+    # Если разрешено отвечать — передаём Мери, она решает нужен ли ответ
+    if can_reply:
+        name = load_settings(user_id).get("name", "")
+        prompt = (
+            f"Входящее сообщение от {sender}: «{msg.text}»\n\n"
+            "Если это требует ответа (вопрос, просьба, уточнение) — ответь кратко и вежливо "
+            "от лица пользователя. Если это просто информация или не требует ответа — напиши только «—»."
+        )
+        reply = await process_with_mary(user_id, prompt, name)
+        if reply.strip() != "—":
+            await context.bot.send_message(
+                chat_id=msg.chat.id,
+                text=reply,
+                business_connection_id=conn_id,
+            )
+
+
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Инлайн-режим: @Alice_time_bot [запрос] — показывает дела прямо в поле ввода."""
     user_id = update.inline_query.from_user.id
@@ -505,6 +569,8 @@ def main():
     app.add_handler(CommandHandler("chatid", chatid_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(InlineQueryHandler(inline_query))
+    app.add_handler(BusinessConnectionHandler(handle_business_connection))
+    app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
 
     # Обработчик текстовых сообщений (включая от ботов — для bot-to-bot)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
