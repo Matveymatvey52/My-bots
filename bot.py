@@ -27,7 +27,11 @@ from telegram.ext import (
     filters,
 )
 
-from agents import process_with_mary
+from agents import generate_business_reply, process_with_mary
+from collections import defaultdict
+
+# История бизнес-переписки: (conn_id, chat_id) → список сообщений
+_biz_history: dict = defaultdict(list)
 from db import (clear_history, delete_business_connection, get_bot_stats,
                 get_tasks_for_day, get_upcoming_tasks, get_user_by_connection,
                 init_db, save_business_connection)
@@ -434,14 +438,19 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
     # Если разрешено отвечать — генерируем ответ от имени пользователя
     if can_reply:
         name = load_settings(user_id).get("name", "")
-        prompt = (
-            f"Тебе пришло сообщение от {sender}: «{msg.text}»\n\n"
-            f"Ответь коротко и по-дружески от лица {name}. "
-            "Не упоминай что ты бот или ИИ. Пиши как живой человек."
-        )
-        reply = await process_with_mary(user_id, prompt, name)
-        logger.info("Business reply to %s: %s", sender, reply[:80])
+        key = (conn_id, msg.chat.id)
+
+        # Добавляем входящее сообщение в историю этого чата
+        _biz_history[key].append({"role": "user", "content": msg.text})
+        # Ограничиваем историю последними 20 сообщениями
+        if len(_biz_history[key]) > 20:
+            _biz_history[key] = _biz_history[key][-20:]
+
         try:
+            reply = await generate_business_reply(name, sender, _biz_history[key])
+            logger.info("Business reply to %s: %s", sender, reply[:80])
+            # Добавляем ответ в историю
+            _biz_history[key].append({"role": "assistant", "content": reply})
             await context.bot.send_message(
                 chat_id=msg.chat.id,
                 text=reply,

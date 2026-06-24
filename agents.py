@@ -289,6 +289,29 @@ async def _process_with_mary(user_id: int, user_message: str, user_name: str, on
     return mary_reply
 
 
+async def generate_business_reply(owner_name: str, sender_name: str, conversation: list[dict]) -> str:
+    """
+    Генерирует ответ от имени владельца (owner_name) на сообщение от sender_name.
+    conversation — список {"role": "user"/"assistant", "content": "..."} для контекста переписки.
+    """
+    system = (
+        f"Ты ведёшь переписку от лица {owner_name}. "
+        f"Отвечай естественно, коротко и по-дружески, как живой человек. "
+        f"Никогда не упоминай что ты ИИ или бот. "
+        f"Отвечай только на русском языке если собеседник пишет по-русски."
+    )
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            system=system,
+            messages=conversation,
+        )
+        return next((b.text for b in response.content if b.type == "text"), "")
+    except Exception as e:
+        raise
+
+
 async def process_with_sam(user_id: int, mary_message: str) -> str:
     """
     Сэм получает задание от Мери, выполняет его с помощью инструментов
