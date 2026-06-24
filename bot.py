@@ -57,6 +57,13 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start — сбрасывает настройки и начинает онбординг заново."""
     user_id = update.effective_user.id
+
+    # Telegram Business посылает /start bizChat<id> при нажатии «Управление ботом» — не сбрасываем бота
+    if context.args and context.args[0].startswith("bizChat"):
+        if is_onboarding_done(user_id):
+            await update.message.reply_text("👋 Привет! Чем могу помочь?")
+        return
+
     save_settings(user_id, {"onboarding_step": "ask_name", "onboarding_done": False})
     clear_history(user_id)
     await update.message.reply_text(
