@@ -26,7 +26,7 @@ from telegram.ext import (
 )
 
 from agents import process_with_mary
-from db import clear_history, get_tasks_for_day, get_upcoming_tasks, init_db
+from db import clear_history, get_bot_stats, get_tasks_for_day, get_upcoming_tasks, init_db
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
 
@@ -331,6 +331,32 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _route_text(user_id, recognized_text, update, context, voice_prefix="🎤 ")
 
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/stats — статистика бота (только для владельца)."""
+    ADMIN_ID = 6279401743
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    s = get_bot_stats()
+
+    lines = [
+        "📊 *Статистика бота*\n",
+        f"👥 Всего пользователей: *{s['total_users']}*",
+        f"🔥 Активны за 7 дней: *{s['active_7d']}*",
+        f"📅 Активны за 30 дней: *{s['active_30d']}*\n",
+        f"💬 Всего сообщений: *{s['total_messages']}*",
+        f"✅ Активных задач: *{s['total_tasks']}*",
+        f"📝 Задач за 30 дней: *{s['tasks_30d']}*",
+    ]
+
+    if s["per_user"]:
+        lines.append("\n*Топ по сообщениям:*")
+        for uid, cnt in s["per_user"][:10]:
+            lines.append(f"  `{uid}` — {cnt} сообщ.")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/chatid — показывает ID текущего чата. Используй в лог-чате, чтобы узнать его ID."""
     chat_id = update.effective_chat.id
@@ -377,6 +403,7 @@ def main():
     app.add_handler(CommandHandler("all", all_tasks_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("chatid", chatid_command))
+    app.add_handler(CommandHandler("stats", stats_command))
 
     # Обработчик всех текстовых сообщений (кроме команд)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

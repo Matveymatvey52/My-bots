@@ -158,6 +158,41 @@ def delete_task(user_id: int, task_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def get_bot_stats() -> dict:
+    """Статистика использования бота."""
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+
+        total_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM messages").fetchone()[0]
+        active_7d = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM messages WHERE created_at >= datetime('now', '-7 days')"
+        ).fetchone()[0]
+        active_30d = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM messages WHERE created_at >= datetime('now', '-30 days')"
+        ).fetchone()[0]
+        total_messages = conn.execute("SELECT COUNT(*) FROM messages WHERE role = 'user'").fetchone()[0]
+        total_tasks = conn.execute("SELECT COUNT(*) FROM tasks WHERE status = 'active'").fetchone()[0]
+        tasks_30d = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE created_at >= datetime('now', '-30 days')"
+        ).fetchone()[0]
+
+        per_user = conn.execute(
+            """SELECT user_id, COUNT(*) as cnt
+               FROM messages WHERE role = 'user'
+               GROUP BY user_id ORDER BY cnt DESC"""
+        ).fetchall()
+
+        return {
+            "total_users": total_users,
+            "active_7d": active_7d,
+            "active_30d": active_30d,
+            "total_messages": total_messages,
+            "total_tasks": total_tasks,
+            "tasks_30d": tasks_30d,
+            "per_user": [(r["user_id"], r["cnt"]) for r in per_user],
+        }
+
+
 def mark_reminder_sent(task_id: int):
     with _conn() as conn:
         conn.execute("UPDATE tasks SET reminder_sent = 1 WHERE id = ?", (task_id,))
