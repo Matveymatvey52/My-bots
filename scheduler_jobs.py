@@ -17,7 +17,7 @@ def now_msk() -> datetime:
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application
 
-from db import get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
+from db import claim_summary_send, get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
 from settings import SETTINGS_DIR, get_all_user_ids, load_settings
 
 logger = logging.getLogger(__name__)
@@ -81,11 +81,13 @@ async def send_scheduled_messages(app: Application):
 
         # Утреннее сообщение — дела на сегодня
         if _norm_time(s.get("morning_time", "")) == current_time:
-            await _send_daily_summary(app, user_id, today, name, morning=True)
+            if claim_summary_send(user_id, today, "morning"):
+                await _send_daily_summary(app, user_id, today, name, morning=True)
 
         # Вечернее сообщение — дела на завтра (если включено)
         if s.get("evening_enabled") and _norm_time(s.get("evening_time", "20:00")) == current_time:
-            await _send_daily_summary(app, user_id, tomorrow, name, morning=False)
+            if claim_summary_send(user_id, tomorrow, "evening"):
+                await _send_daily_summary(app, user_id, tomorrow, name, morning=False)
 
 
 async def _send_daily_summary(app: Application, user_id: int, date: str, name: str, morning: bool):

@@ -37,6 +37,14 @@ def init_db():
             except Exception:
                 pass
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS sent_summaries (
+                user_id INTEGER NOT NULL,
+                date    TEXT    NOT NULL,
+                type    TEXT    NOT NULL,
+                PRIMARY KEY (user_id, date, type)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id    INTEGER NOT NULL,
@@ -156,6 +164,20 @@ def delete_task(user_id: int, task_id: int) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+
+
+def claim_summary_send(user_id: int, date: str, summary_type: str) -> bool:
+    """Атомарно резервирует отправку сводки. Возвращает True если отправка разрешена (ещё не было)."""
+    with _conn() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO sent_summaries (user_id, date, type) VALUES (?, ?, ?)",
+                (user_id, date, summary_type),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
 
 def get_bot_stats() -> dict:
