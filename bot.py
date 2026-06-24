@@ -5,6 +5,7 @@
 # • описываем обработчики команд (/start, /tasks, /settings)
 # • запускаем планировщик и сам бот
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -474,6 +475,9 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
             logger.info("Business reply to %s: %s", sender, reply[:80])
             # Добавляем ответ в историю
             _biz_history[key].append({"role": "assistant", "content": reply})
+            # Задержка: ~1 сек на каждые 10 символов + базовые 3 сек, как будто человек набирает
+            typing_delay = 3 + len(reply) / 10
+            await asyncio.sleep(min(typing_delay, 12))  # не больше 12 сек
             await context.bot.send_message(
                 chat_id=msg.chat.id,
                 text=reply,
