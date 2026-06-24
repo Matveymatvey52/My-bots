@@ -16,11 +16,12 @@ def now_msk() -> datetime:
     return datetime.now(tz=MSK)
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
+    InlineQueryHandler,
     MessageHandler,
     filters,
 )
@@ -383,6 +384,79 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Инлайн-режим: @Alice_time_bot [запрос] — показывает дела прямо в поле ввода."""
+    user_id = update.inline_query.from_user.id
+    query = update.inline_query.query.strip().lower()
+
+    now = now_msk()
+    today = now.strftime("%Y-%m-%d")
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    month_ru = {
+        "January": "января", "February": "февраля", "March": "марта", "April": "апреля",
+        "May": "мая", "June": "июня", "July": "июля", "August": "августа",
+        "September": "сентября", "October": "октября", "November": "ноября", "December": "декабря",
+    }
+
+    def format_tasks(tasks, date_str) -> str:
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        label = f"{d.day} {month_ru[d.strftime('%B')]}"
+        if not tasks:
+            return f"📅 {label}: дел нет 🎉"
+        lines = [f"📅 {label}:"]
+        for t in tasks:
+            prefix = f"⏰ {t['time']} — " if t["time"] else "• "
+            lines.append(f"{prefix}{t['text']}")
+        return "\n".join(lines)
+
+    results = []
+
+    # Карточка «На сегодня»
+    if not query or "сегодня" in query or "today" in query:
+        tasks_today = get_tasks_for_day(user_id, today)
+        text_today = format_tasks(tasks_today, today)
+        results.append(InlineQueryResultArticle(
+            id="today",
+            title="📅 Дела на сегодня",
+            description=f"{len(tasks_today)} дел" if tasks_today else "Дел нет",
+            input_message_content=InputTextMessageContent(text_today),
+        ))
+
+    # Карточка «На завтра»
+    if not query or "завтра" in query or "tomorrow" in query:
+        tasks_tomorrow = get_tasks_for_day(user_id, tomorrow)
+        text_tomorrow = format_tasks(tasks_tomorrow, tomorrow)
+        results.append(InlineQueryResultArticle(
+            id="tomorrow",
+            title="📅 Дела на завтра",
+            description=f"{len(tasks_tomorrow)} дел" if tasks_tomorrow else "Дел нет",
+            input_message_content=InputTextMessageContent(text_tomorrow),
+        ))
+
+    # Карточка «Все предстоящие»
+    if not query or "все" in query or "all" in query:
+        all_tasks = get_upcoming_tasks(user_id)
+        if all_tasks:
+            by_date: dict[str, list] = {}
+            for t in all_tasks:
+                by_date.setdefault(t["date"], []).append(t)
+            blocks = []
+            for date, day_tasks in list(by_date.items())[:5]:
+                blocks.append(format_tasks(day_tasks, date))
+            text_all = "\n\n".join(blocks)
+        else:
+            text_all = "Предстоящих дел нет 🎉"
+        results.append(InlineQueryResultArticle(
+            id="all",
+            title="📋 Все предстоящие дела",
+            description=f"{len(all_tasks)} дел" if all_tasks else "Дел нет",
+            input_message_content=InputTextMessageContent(text_all),
+        ))
+
+    await update.inline_query.answer(results, cache_time=30)
+
+
 async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/chatid — показывает ID текущего чата. Используй в лог-чате, чтобы узнать его ID."""
     chat_id = update.effective_chat.id
@@ -430,6 +504,7 @@ def main():
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("chatid", chatid_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(InlineQueryHandler(inline_query))
 
     # Обработчик текстовых сообщений (включая от ботов — для bot-to-bot)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
