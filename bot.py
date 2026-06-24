@@ -465,13 +465,18 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
         history = load_biz_history(conn_id, msg.chat.id)
 
         try:
-            reply = await generate_business_reply(name, sender, history, tasks_context)
-            logger.info("Business reply to %s: %s", sender, reply[:80])
+            reply, used_search = await generate_business_reply(name, sender, history, tasks_context)
+            logger.info("Business reply to %s (search=%s): %s", sender, used_search, reply[:80])
             # Сохраняем ответ в БД
             save_biz_message(conn_id, msg.chat.id, "assistant", reply)
-            # Задержка: ~1 сек на каждые 10 символов + базовые 3 сек, как будто человек набирает
-            typing_delay = 3 + len(reply) / 10
-            await asyncio.sleep(min(typing_delay, 12))  # не больше 12 сек
+            # Задержка: обычный ответ ~3-12 сек, поиск в интернете ~15-30 сек
+            if used_search:
+                import random
+                typing_delay = random.uniform(15, 30)
+            else:
+                typing_delay = 3 + len(reply) / 10
+                typing_delay = min(typing_delay, 12)
+            await asyncio.sleep(typing_delay)
             await context.bot.send_message(
                 chat_id=msg.chat.id,
                 text=reply,

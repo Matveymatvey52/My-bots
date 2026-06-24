@@ -323,11 +323,10 @@ async def generate_business_reply(
     sender_name: str,
     conversation: list[dict],
     tasks_context: str = "",
-) -> str:
+) -> tuple[str, bool]:
     """
     Генерирует ответ от имени владельца (owner_name) на сообщение от sender_name.
-    conversation — список {"role": "user"/"assistant", "content": "..."}.
-    tasks_context — текстовый дамп актуальных задач из расписания.
+    Возвращает (текст_ответа, использовался_ли_поиск).
     """
     now = now_msk()
     current_time_str = now.strftime("%H:%M %d.%m.%Y")
@@ -351,6 +350,7 @@ async def generate_business_reply(
         f"- Отвечай на русском"
     )
     messages = list(conversation)
+    used_search = False
     for _ in range(4):
         response = await client.messages.create(
             model="claude-sonnet-4-6",
@@ -360,8 +360,9 @@ async def generate_business_reply(
             messages=messages,
         )
         if response.stop_reason == "end_turn":
-            return next((b.text for b in response.content if b.type == "text"), "")
+            return next((b.text for b in response.content if b.type == "text"), ""), used_search
         if response.stop_reason == "tool_use":
+            used_search = True
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use" and block.name == "web_search":
@@ -376,8 +377,8 @@ async def generate_business_reply(
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
         else:
-            return next((b.text for b in response.content if b.type == "text"), "")
-    return next((b.text for b in response.content if b.type == "text"), "")
+            return next((b.text for b in response.content if b.type == "text"), ""), used_search
+    return next((b.text for b in response.content if b.type == "text"), ""), used_search
 
 
 async def process_with_sam(user_id: int, mary_message: str) -> str:
