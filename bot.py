@@ -433,6 +433,11 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
     user_id = info["user_id"]
     can_reply = bool(info["can_reply"])
+
+    # Не реагируем на собственные сообщения владельца
+    if msg.from_user and msg.from_user.id == user_id:
+        return
+
     sender = msg.from_user.first_name or msg.from_user.username or "Неизвестный"
 
     # Уведомляем пользователя о входящем сообщении
