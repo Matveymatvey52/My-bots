@@ -3,3 +3,4 @@ anthropic>=0.40.0
 apscheduler>=3.10.4
 python-dotenv>=1.0.0
 assemblyai>=0.20.0
+duckduckgo-search>=6.0.0

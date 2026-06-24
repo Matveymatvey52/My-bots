@@ -60,6 +60,16 @@ def init_db():
                 created_at TEXT    DEFAULT (datetime('now', 'localtime'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS biz_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                conn_id    TEXT    NOT NULL,
+                chat_id    INTEGER NOT NULL,
+                role       TEXT    NOT NULL,
+                content    TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        """)
         conn.commit()
 
 
@@ -271,3 +281,26 @@ def mark_time_notified(task_id: int):
     with _conn() as conn:
         conn.execute("UPDATE tasks SET time_notified = 1 WHERE id = ?", (task_id,))
         conn.commit()
+
+
+def save_biz_message(conn_id: str, chat_id: int, role: str, content: str):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO biz_messages (conn_id, chat_id, role, content) VALUES (?, ?, ?, ?)",
+            (conn_id, chat_id, role, content),
+        )
+        conn.commit()
+
+
+def load_biz_history(conn_id: str, chat_id: int, limit: int = 30) -> list[dict]:
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT role, content FROM (
+                   SELECT role, content, created_at FROM biz_messages
+                   WHERE conn_id = ? AND chat_id = ?
+                   ORDER BY created_at DESC LIMIT ?
+               ) ORDER BY created_at ASC""",
+            (conn_id, chat_id, limit),
+        ).fetchall()
+        return [{"role": r["role"], "content": r["content"]} for r in rows]

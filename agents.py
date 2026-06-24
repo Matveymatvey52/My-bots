@@ -15,6 +15,7 @@ import asyncio
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from duckduckgo_search import DDGS
 
 MSK = timezone(timedelta(hours=3))
 
@@ -289,6 +290,34 @@ async def _process_with_mary(user_id: int, user_message: str, user_name: str, on
     return mary_reply
 
 
+def _web_search(query: str) -> str:
+    """Поиск в интернете через DuckDuckGo, возвращает топ-3 результата с URL."""
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+        if not results:
+            return "Ничего не найдено."
+        lines = [f"{r['title']}\n{r['href']}" for r in results]
+        return "\n\n".join(lines)
+    except Exception as e:
+        return f"Ошибка поиска: {e}"
+
+
+_BIZ_TOOLS = [
+    {
+        "name": "web_search",
+        "description": "Найти информацию в интернете: адреса, ссылки на сайты, места, контакты и т.п.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Поисковый запрос"}
+            },
+            "required": ["query"],
+        },
+    }
+]
+
+
 async def generate_business_reply(
     owner_name: str,
     sender_name: str,
@@ -313,22 +342,41 @@ async def generate_business_reply(
         f"Правила:\n"
         f"- Пиши как живой человек: коротко, неформально, без пафоса\n"
         f"- 1-2 предложения максимум\n"
-        f"- Никогда не упоминай что ты ИИ или бот, не предлагай 'загуглить'\n"
-        f"- Эмодзи: максимум 1 штука на сообщение, и каждый раз разный — не повторяй один и тот же\n"
-        f"- Если спрашивают о планах — смотри расписание выше и отвечай честно\n"
-        f"- Если нужно принять решение (куда пойти, что выбрать) — просто выбери что-нибудь конкретное\n"
+        f"- Никогда не упоминай что ты ИИ или бот\n"
+        f"- Если просят скинуть ссылку или найти место — используй web_search и скинь реальную ссылку\n"
+        f"- Эмодзи: максимум 1 штука на сообщение, каждый раз разный\n"
+        f"- Если спрашивают о планах — смотри расписание выше\n"
+        f"- Если нужно выбрать (куда пойти и т.п.) — выбери конкретное место, найди ссылку\n"
         f"- Отвечай на русском"
     )
-    try:
+    messages = list(conversation)
+    for _ in range(4):
         response = await client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=256,
+            max_tokens=512,
             system=system,
-            messages=conversation,
+            tools=_BIZ_TOOLS,
+            messages=messages,
         )
-        return next((b.text for b in response.content if b.type == "text"), "")
-    except Exception as e:
-        raise
+        if response.stop_reason == "end_turn":
+            return next((b.text for b in response.content if b.type == "text"), "")
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use" and block.name == "web_search":
+                    result = await asyncio.get_event_loop().run_in_executor(
+                        None, _web_search, block.input["query"]
+                    )
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            return next((b.text for b in response.content if b.type == "text"), "")
+    return next((b.text for b in response.content if b.type == "text"), "")
 
 
 async def process_with_sam(user_id: int, mary_message: str) -> str:

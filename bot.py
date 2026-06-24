@@ -29,13 +29,9 @@ from telegram.ext import (
 )
 
 from agents import generate_business_reply, process_with_mary
-from collections import defaultdict
-
-# История бизнес-переписки: (conn_id, chat_id) → список сообщений
-_biz_history: dict = defaultdict(list)
 from db import (clear_history, delete_business_connection, get_bot_stats,
                 get_tasks_for_day, get_upcoming_tasks, get_user_by_connection,
-                init_db, save_business_connection)
+                init_db, load_biz_history, save_biz_message, save_business_connection)
 from settings import get_all_user_ids
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
@@ -451,13 +447,9 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
     # Если разрешено отвечать — генерируем ответ от имени пользователя
     if can_reply:
         name = load_settings(user_id).get("name", "")
-        key = (conn_id, msg.chat.id)
 
-        # Добавляем входящее сообщение в историю этого чата
-        _biz_history[key].append({"role": "user", "content": msg.text})
-        # Ограничиваем историю последними 20 сообщениями
-        if len(_biz_history[key]) > 20:
-            _biz_history[key] = _biz_history[key][-20:]
+        # Сохраняем входящее сообщение в БД
+        save_biz_message(conn_id, msg.chat.id, "user", msg.text)
 
         # Подгружаем реальное расписание
         upcoming = get_upcoming_tasks(user_id)
@@ -470,11 +462,13 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
         else:
             tasks_context = "Предстоящих задач нет."
 
+        history = load_biz_history(conn_id, msg.chat.id)
+
         try:
-            reply = await generate_business_reply(name, sender, _biz_history[key], tasks_context)
+            reply = await generate_business_reply(name, sender, history, tasks_context)
             logger.info("Business reply to %s: %s", sender, reply[:80])
-            # Добавляем ответ в историю
-            _biz_history[key].append({"role": "assistant", "content": reply})
+            # Сохраняем ответ в БД
+            save_biz_message(conn_id, msg.chat.id, "assistant", reply)
             # Задержка: ~1 сек на каждые 10 символов + базовые 3 сек, как будто человек набирает
             typing_delay = 3 + len(reply) / 10
             await asyncio.sleep(min(typing_delay, 12))  # не больше 12 сек
