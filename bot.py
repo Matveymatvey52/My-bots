@@ -431,20 +431,27 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
         parse_mode="Markdown",
     )
 
-    # Если разрешено отвечать — передаём Мери, она решает нужен ли ответ
+    # Если разрешено отвечать — генерируем ответ от имени пользователя
     if can_reply:
         name = load_settings(user_id).get("name", "")
         prompt = (
-            f"Входящее сообщение от {sender}: «{msg.text}»\n\n"
-            "Если это требует ответа (вопрос, просьба, уточнение) — ответь кратко и вежливо "
-            "от лица пользователя. Если это просто информация или не требует ответа — напиши только «—»."
+            f"Тебе пришло сообщение от {sender}: «{msg.text}»\n\n"
+            f"Ответь коротко и по-дружески от лица {name}. "
+            "Не упоминай что ты бот или ИИ. Пиши как живой человек."
         )
         reply = await process_with_mary(user_id, prompt, name)
-        if reply.strip() != "—":
+        logger.info("Business reply to %s: %s", sender, reply[:80])
+        try:
             await context.bot.send_message(
                 chat_id=msg.chat.id,
                 text=reply,
                 business_connection_id=conn_id,
+            )
+        except Exception as e:
+            logger.error("Не удалось отправить business-ответ: %s", e)
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"⚠️ Не смогла ответить {sender}: {e}",
             )
 
 
