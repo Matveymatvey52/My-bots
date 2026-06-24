@@ -27,6 +27,7 @@ from telegram.ext import (
 
 from agents import process_with_mary
 from db import clear_history, get_bot_stats, get_tasks_for_day, get_upcoming_tasks, init_db
+from settings import get_all_user_ids
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
 
@@ -338,13 +339,15 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     s = get_bot_stats()
+    all_users = get_all_user_ids()
 
     lines = [
         "📊 *Статистика бота*\n",
-        f"👥 Всего пользователей: *{s['total_users']}*",
+        f"👤 Запустили /start: *{len(all_users)}*",
+        f"💬 Написали хоть раз: *{s['total_users']}*",
         f"🔥 Активны за 7 дней: *{s['active_7d']}*",
         f"📅 Активны за 30 дней: *{s['active_30d']}*\n",
-        f"💬 Всего сообщений: *{s['total_messages']}*",
+        f"✉️ Всего сообщений: *{s['total_messages']}*",
         f"✅ Активных задач: *{s['total_tasks']}*",
         f"📝 Задач за 30 дней: *{s['tasks_30d']}*",
     ]
