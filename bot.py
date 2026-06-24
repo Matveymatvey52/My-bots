@@ -173,7 +173,30 @@ async def _route_text(
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+
+    # Игнорируем сообщения от самого себя во избежание петель
+    bot_info = await context.bot.get_me()
+    if update.effective_user.id == bot_info.id:
+        return
+
     text = update.message.text.strip()
+
+    # Для групповых чатов реагируем только если бот упомянут или это reply на его сообщение
+    if update.message.chat.type in ("group", "supergroup"):
+        is_mention = any(
+            e.type == "mention" and f"@{bot_info.username}" in text
+            for e in (update.message.entities or [])
+        )
+        is_reply_to_bot = (
+            update.message.reply_to_message
+            and update.message.reply_to_message.from_user
+            and update.message.reply_to_message.from_user.id == bot_info.id
+        )
+        if not is_mention and not is_reply_to_bot:
+            return
+        # Убираем упоминание из текста перед обработкой
+        text = text.replace(f"@{bot_info.username}", "").strip()
+
     await _route_text(user_id, text, update, context)
 
 
@@ -408,7 +431,7 @@ def main():
     app.add_handler(CommandHandler("chatid", chatid_command))
     app.add_handler(CommandHandler("stats", stats_command))
 
-    # Обработчик всех текстовых сообщений (кроме команд)
+    # Обработчик текстовых сообщений (включая от ботов — для bot-to-bot)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Обработчик голосовых сообщений
