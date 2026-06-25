@@ -89,6 +89,14 @@ def init_db():
                 conn.execute(f"ALTER TABLE biz_chat_settings ADD COLUMN {col} {definition}")
             except Exception:
                 pass
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS photos (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                file_id    TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        """)
         conn.commit()
 
 
@@ -309,6 +317,27 @@ def get_connection_for_user(user_id: int) -> Optional[dict]:
         row = conn.execute(
             "SELECT connection_id, user_id, can_reply FROM business_connections WHERE user_id = ?",
             (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def save_photo(user_id: int, file_id: str) -> int:
+    """Сохраняет фото и возвращает его числовой ID в базе."""
+    with _conn() as conn:
+        cursor = conn.execute(
+            "INSERT INTO photos (user_id, file_id) VALUES (?, ?)",
+            (user_id, file_id),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_photo(photo_id: int) -> Optional[dict]:
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, user_id, file_id FROM photos WHERE id = ?",
+            (photo_id,),
         ).fetchone()
         return dict(row) if row else None
 

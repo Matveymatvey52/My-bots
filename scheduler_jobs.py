@@ -17,7 +17,8 @@ def now_msk() -> datetime:
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application
 
-from db import claim_summary_send, get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
+import re
+from db import claim_summary_send, get_photo, get_tasks_for_day, get_tasks_needing_reminder, mark_reminder_sent
 from settings import SETTINGS_DIR, get_all_user_ids, load_settings
 
 logger = logging.getLogger(__name__)
@@ -63,9 +64,16 @@ async def send_scheduled_messages(app: Application):
     for task in get_tasks_needing_reminder(now):
         mins = task["reminder_minutes"]
         label = f"через {mins} мин" if mins < 60 else f"через {mins // 60} ч"
-        text = f"⏰ *Напоминание!* {label}: *{task['text']}* в {task['time']}"
+        task_text = task["text"]
+        photo_match = re.search(r'\[photo:(\d+)\]', task_text)
+        clean_text = re.sub(r'\[photo:\d+\]', '', task_text).strip()
+        text = f"⏰ *Напоминание!* {label}: *{clean_text}* в {task['time']}"
         try:
             await app.bot.send_message(chat_id=task["user_id"], text=text, parse_mode="Markdown")
+            if photo_match:
+                photo = get_photo(int(photo_match.group(1)))
+                if photo:
+                    await app.bot.send_photo(chat_id=task["user_id"], photo=photo["file_id"])
             mark_reminder_sent(task["id"])
         except Exception as e:
             logger.error("Не удалось отправить напоминание %d: %s", task["id"], e)
@@ -117,10 +125,14 @@ async def _send_daily_summary(app: Application, user_id: int, date: str, name: s
     else:
         task_lines = []
         for t in tasks:
+            raw = t["text"]
+            has_photo = bool(re.search(r'\[photo:\d+\]', raw))
+            clean = re.sub(r'\[photo:\d+\]', '', raw).strip()
+            label = f"{'📷 ' if has_photo else ''}{clean}"
             if t["time"]:
-                task_lines.append(f"⏰ {t['time']} — {t['text']}")
+                task_lines.append(f"⏰ {t['time']} — {label}")
             else:
-                task_lines.append(f"• {t['text']}")
+                task_lines.append(f"• {label}")
         closing = random.choice([
             "Насыщенный день! 💪",
             "Всё успеешь! 🙌",

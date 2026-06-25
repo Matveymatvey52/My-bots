@@ -34,7 +34,7 @@ from db import (clear_history, delete_business_connection, get_bot_stats,
                 get_biz_chat_muted, get_biz_chat_settings, get_connection_for_user,
                 get_tasks_for_day, get_upcoming_tasks, get_user_by_connection,
                 init_db, load_biz_history, save_biz_message, save_business_connection,
-                set_biz_chat_muted, set_biz_chat_settings)
+                save_photo, set_biz_chat_muted, set_biz_chat_settings)
 from settings import get_all_user_ids
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
@@ -44,6 +44,8 @@ load_dotenv()
 
 # Ожидание ввода кастомной инструкции: user_id → (conn_id, chat_id)
 _pending_instruction: dict[int, tuple[str, int]] = {}
+# Ожидание задачи для фото: user_id → photo_db_id
+_pending_photo: dict[int, int] = {}
 
 # Настраиваем логирование: все сообщения бота будут видны в терминале
 logging.basicConfig(
@@ -240,7 +242,13 @@ async def _route_text(
         async def send_sam(sam_text: str):
             await log_to_chat(context.bot, sam_text)
 
-        reply = await process_with_mary(user_id, text, name, on_sam_message=send_sam)
+        # Если есть ожидающее фото — добавляем контекст в сообщение Мери
+        effective_text = text
+        if user_id in _pending_photo:
+            photo_db_id = _pending_photo.pop(user_id)
+            effective_text = f"[photo_context: пользователь ранее прислал фото photo_id={photo_db_id}, если создаёшь задачу — включи '[photo:{photo_db_id}]' в текст задачи]\n{text}"
+
+        reply = await process_with_mary(user_id, effective_text, name, on_sam_message=send_sam)
         await update.message.reply_text(reply, parse_mode="Markdown")
         await log_to_chat(context.bot, f"🤖 *Мери:* {reply}")
 
@@ -284,6 +292,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = text.replace(f"@{bot_info.username}", "").strip()
 
     await _route_text(user_id, text, update, context)
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пользователь прислал фото — сохраняем и просим указать время."""
+    user_id = update.effective_user.id
+    if not is_onboarding_done(user_id):
+        return
+    file_id = update.message.photo[-1].file_id
+    photo_db_id = save_photo(user_id, file_id)
+    _pending_photo[user_id] = photo_db_id
+    caption = update.message.caption or ""
+    prompt = f"Пользователь прислал фото (photo_id={photo_db_id}). {caption} Спроси когда напомнить об этом фото или что с ним сделать. Когда создаёшь задачу через Сэма — включи '[photo:{photo_db_id}]' в текст задачи."
+    reply = await process_with_mary(user_id, prompt)
+    await update.message.reply_text(reply)
 
 
 # ──────────────────────────────────────────────
@@ -751,6 +773,9 @@ def main():
 
     # Обработчик голосовых сообщений
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+
+    # Обработчик фото
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     # На Railway используем webhook — Telegram сам присылает обновления.
     # Локально используем polling — проще для разработки.
