@@ -31,10 +31,10 @@ from telegram.ext import (
 
 from agents import generate_business_reply, process_with_mary
 from db import (clear_history, delete_business_connection, get_bot_stats,
-                get_biz_chat_muted, get_connection_for_user, get_tasks_for_day,
-                get_upcoming_tasks, get_user_by_connection, init_db,
-                load_biz_history, save_biz_message, save_business_connection,
-                set_biz_chat_muted)
+                get_biz_chat_muted, get_biz_chat_settings, get_connection_for_user,
+                get_tasks_for_day, get_upcoming_tasks, get_user_by_connection,
+                init_db, load_biz_history, save_biz_message, save_business_connection,
+                set_biz_chat_muted, set_biz_chat_settings)
 from settings import get_all_user_ids
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
@@ -42,12 +42,63 @@ from settings import is_onboarding_done, load_settings, save_settings
 # Загружаем переменные из файла .env (TELEGRAM_BOT_TOKEN и ANTHROPIC_API_KEY)
 load_dotenv()
 
+# Ожидание ввода кастомной инструкции: user_id → (conn_id, chat_id)
+_pending_instruction: dict[int, tuple[str, int]] = {}
+
 # Настраиваем логирование: все сообщения бота будут видны в терминале
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(name)s  %(levelname)s  %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────
+# Бизнес-панель управления конкретным чатом
+# ──────────────────────────────────────────────
+
+def _build_biz_panel(conn_id: str, chat_id: int) -> tuple:
+    """Строит текст и клавиатуру панели управления конкретным бизнес-чатом."""
+    s = get_biz_chat_settings(conn_id, chat_id)
+    muted = get_biz_chat_muted(conn_id, chat_id)
+    instr = s.get("custom_instruction") or ""
+    history = load_biz_history(conn_id, chat_id, limit=6)
+
+    lines = ["⚙️ Управление чатом\n"]
+    if history:
+        lines.append("Последние сообщения:")
+        for m in history[-4:]:
+            who = "← Они" if m["role"] == "user" else "→ Ты"
+            preview = m["content"][:55] + ("…" if len(m["content"]) > 55 else "")
+            lines.append(f"  {who}: {preview}")
+        lines.append("")
+    lines.append(f"Автоответ: {'🔇 выключен' if muted else '✅ включён'}")
+    if instr:
+        lines.append(f"Инструкция: {instr}")
+
+    cid = f"{conn_id}:{chat_id}"
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔇 Выключить" if not muted else "✅ Включить",
+                                 callback_data=f"biz:toggle:{cid}"),
+        ],
+        [
+            InlineKeyboardButton("😊 Смайлики", callback_data=f"biz:preset:smile:{cid}"),
+            InlineKeyboardButton("👔 Формально", callback_data=f"biz:preset:formal:{cid}"),
+            InlineKeyboardButton("⚡ Кратко",    callback_data=f"biz:preset:short:{cid}"),
+        ],
+        [
+            InlineKeyboardButton("🔇 На 1 час",  callback_data=f"biz:mute1:{cid}"),
+            InlineKeyboardButton("🔇 На 3 часа", callback_data=f"biz:mute3:{cid}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Своя инструкция", callback_data=f"biz:setinstr:{cid}"),
+        ],
+        [
+            InlineKeyboardButton("🗑 Сбросить инструкцию", callback_data=f"biz:clearinstr:{cid}"),
+        ],
+    ])
+    return "\n".join(lines), keyboard
 
 
 # ──────────────────────────────────────────────
@@ -68,27 +119,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if biz_chat_id and is_onboarding_done(user_id):
             conn = get_connection_for_user(user_id)
             if conn:
-                conn_id = conn["connection_id"]
-                muted = get_biz_chat_muted(conn_id, biz_chat_id)
-                history = load_biz_history(conn_id, biz_chat_id, limit=6)
-
-                lines = ["⚙️ Управление чатом\n"]
-                if history:
-                    lines.append("Последние сообщения:")
-                    for m in history[-4:]:
-                        who = "← Они" if m["role"] == "user" else "→ Ты"
-                        preview = m["content"][:60] + ("…" if len(m["content"]) > 60 else "")
-                        lines.append(f"  {who}: {preview}")
-                    lines.append("")
-                lines.append(f"Автоответ: {'🔇 выключен' if muted else '✅ включён'}")
-
-                keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        "🔇 Выключить автоответ" if not muted else "✅ Включить автоответ",
-                        callback_data=f"biztoggle:{conn_id}:{biz_chat_id}",
-                    )
-                ]])
-                await update.message.reply_text("\n".join(lines), reply_markup=keyboard)
+                text, keyboard = _build_biz_panel(conn["connection_id"], biz_chat_id)
+                await update.message.reply_text(text, reply_markup=keyboard)
                 return
 
         await update.message.reply_text("👋 Привет! Чем могу помочь?")
@@ -218,6 +250,15 @@ async def _route_text(
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+
+    # Если ждём ввода кастомной инструкции для бизнес-чата — сохраняем её
+    if user_id in _pending_instruction:
+        conn_id, chat_id = _pending_instruction.pop(user_id)
+        instr = update.message.text.strip()
+        set_biz_chat_settings(conn_id, chat_id, custom_instruction=instr)
+        text, keyboard = _build_biz_panel(conn_id, chat_id)
+        await update.message.reply_text(f"✅ Инструкция сохранена!\n\n{text}", reply_markup=keyboard)
+        return
 
     # Игнорируем сообщения от самого себя во избежание петель
     bot_info = await context.bot.get_me()
@@ -496,9 +537,13 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
             tasks_context = "Предстоящих задач нет."
 
         history = load_biz_history(conn_id, msg.chat.id)
+        chat_settings = get_biz_chat_settings(conn_id, msg.chat.id)
+        custom_instr = chat_settings.get("custom_instruction") or ""
 
         try:
-            reply, used_search = await generate_business_reply(name, sender, history, tasks_context)
+            reply, used_search = await generate_business_reply(
+                name, sender, history, tasks_context, custom_instr
+            )
             logger.info("Business reply to %s (search=%s): %s", sender, used_search, reply[:80])
             # Сохраняем ответ в БД
             save_biz_message(conn_id, msg.chat.id, "assistant", reply)
@@ -523,35 +568,57 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
             )
 
 
-async def biz_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Кнопка включить/выключить автоответ для конкретного бизнес-чата."""
+async def biz_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик всех кнопок панели управления бизнес-чатом."""
+    from datetime import datetime, timezone, timedelta as td
     query = update.callback_query
     await query.answer()
-    _, conn_id, chat_id_str = query.data.split(":", 2)
-    chat_id = int(chat_id_str)
 
-    muted = get_biz_chat_muted(conn_id, chat_id)
-    set_biz_chat_muted(conn_id, chat_id, not muted)
-    new_muted = not muted
+    # data format: "biz:ACTION:conn_id:chat_id"
+    parts = query.data.split(":", 3)
+    action = parts[1]
+    conn_id = parts[2]
+    chat_id = int(parts[3])
+    user_id = query.from_user.id
 
-    history = load_biz_history(conn_id, chat_id, limit=6)
-    lines = ["⚙️ Управление чатом\n"]
-    if history:
-        lines.append("Последние сообщения:")
-        for m in history[-4:]:
-            who = "← Они" if m["role"] == "user" else "→ Ты"
-            preview = m["content"][:60] + ("…" if len(m["content"]) > 60 else "")
-            lines.append(f"  {who}: {preview}")
-        lines.append("")
-    lines.append(f"Автоответ: {'🔇 выключен' if new_muted else '✅ включён'}")
+    PRESETS = {
+        "smile": "Используй много смайликов, пиши тепло и дружелюбно",
+        "formal": "Общайся формально и вежливо, без смайликов",
+        "short":  "Отвечай очень коротко — 1 предложение максимум",
+    }
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            "🔇 Выключить автоответ" if not new_muted else "✅ Включить автоответ",
-            callback_data=f"biztoggle:{conn_id}:{chat_id}",
+    if action == "toggle":
+        muted = get_biz_chat_muted(conn_id, chat_id)
+        set_biz_chat_muted(conn_id, chat_id, not muted)
+
+    elif action.startswith("preset:"):
+        preset_key = action.split(":")[1]
+        instr = PRESETS.get(preset_key, "")
+        set_biz_chat_settings(conn_id, chat_id, custom_instruction=instr)
+
+    elif action == "mute1":
+        MSK = timezone(td(hours=3))
+        until = (datetime.now(tz=MSK) + td(hours=1)).isoformat()
+        set_biz_chat_settings(conn_id, chat_id, muted=True, mute_until=until)
+
+    elif action == "mute3":
+        MSK = timezone(td(hours=3))
+        until = (datetime.now(tz=MSK) + td(hours=3)).isoformat()
+        set_biz_chat_settings(conn_id, chat_id, muted=True, mute_until=until)
+
+    elif action == "setinstr":
+        _pending_instruction[user_id] = (conn_id, chat_id)
+        await query.message.reply_text(
+            "✏️ Напиши инструкцию для этого чата — например:\n"
+            "«общайся как старый друг», «это VIP клиент, будь внимателен», «используй много смайликов»"
         )
-    ]])
-    await query.edit_message_text("\n".join(lines), reply_markup=keyboard)
+        return
+
+    elif action == "clearinstr":
+        set_biz_chat_settings(conn_id, chat_id, custom_instruction="")
+
+    text, keyboard = _build_biz_panel(conn_id, chat_id)
+    await query.edit_message_text(text, reply_markup=keyboard)
 
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -675,7 +742,7 @@ def main():
     app.add_handler(CommandHandler("chatid", chatid_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(InlineQueryHandler(inline_query))
-    app.add_handler(CallbackQueryHandler(biz_toggle_callback, pattern=r"^biztoggle:"))
+    app.add_handler(CallbackQueryHandler(biz_panel_callback, pattern=r"^biz:"))
     app.add_handler(BusinessConnectionHandler(handle_business_connection))
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
 

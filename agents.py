@@ -323,6 +323,7 @@ async def generate_business_reply(
     sender_name: str,
     conversation: list[dict],
     tasks_context: str = "",
+    custom_instruction: str = "",
 ) -> tuple[str, bool]:
     """
     Генерирует ответ от имени владельца (owner_name) на сообщение от sender_name.
@@ -335,8 +336,9 @@ async def generate_business_reply(
         f"\n\nТвоё расписание (используй если спросят о планах):\n{tasks_context}"
         if tasks_context else ""
     )
+    custom_block = f"\n\nОсобая инструкция для этого чата: {custom_instruction}" if custom_instruction else ""
     system = (
-        f"Ты ведёшь переписку от лица {owner_name}.{schedule_block}\n\n"
+        f"Ты ведёшь переписку от лица {owner_name}.{schedule_block}{custom_block}\n\n"
         f"Сейчас: {current_time_str} МСК — учитывай это когда говоришь о времени.\n\n"
         f"Правила:\n"
         f"- Пиши как живой человек: коротко, неформально, без пафоса\n"

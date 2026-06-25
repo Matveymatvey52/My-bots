@@ -72,12 +72,23 @@ def init_db():
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS biz_chat_settings (
-                conn_id TEXT    NOT NULL,
-                chat_id INTEGER NOT NULL,
-                muted   INTEGER DEFAULT 0,
+                conn_id            TEXT    NOT NULL,
+                chat_id            INTEGER NOT NULL,
+                muted              INTEGER DEFAULT 0,
+                mute_until         TEXT    DEFAULT NULL,
+                custom_instruction TEXT    DEFAULT '',
                 PRIMARY KEY (conn_id, chat_id)
             )
         """)
+        # Миграция: добавляем новые колонки если таблица уже существует
+        for col, definition in [
+            ("mute_until", "TEXT DEFAULT NULL"),
+            ("custom_instruction", "TEXT DEFAULT ''"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE biz_chat_settings ADD COLUMN {col} {definition}")
+            except Exception:
+                pass
         conn.commit()
 
 
@@ -302,22 +313,50 @@ def get_connection_for_user(user_id: int) -> Optional[dict]:
         return dict(row) if row else None
 
 
-def get_biz_chat_muted(conn_id: str, chat_id: int) -> bool:
+def get_biz_chat_settings(conn_id: str, chat_id: int) -> dict:
     with _conn() as conn:
+        conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT muted FROM biz_chat_settings WHERE conn_id = ? AND chat_id = ?",
+            "SELECT muted, mute_until, custom_instruction FROM biz_chat_settings WHERE conn_id = ? AND chat_id = ?",
             (conn_id, chat_id),
         ).fetchone()
-        return bool(row[0]) if row else False
+        if row:
+            return dict(row)
+        return {"muted": 0, "mute_until": None, "custom_instruction": ""}
+
+
+def get_biz_chat_muted(conn_id: str, chat_id: int) -> bool:
+    s = get_biz_chat_settings(conn_id, chat_id)
+    if s["muted"] and s["mute_until"]:
+        # Автоснятие временного мута
+        from datetime import datetime, timezone, timedelta
+        MSK = timezone(timedelta(hours=3))
+        if datetime.now(tz=MSK).isoformat() >= s["mute_until"]:
+            set_biz_chat_settings(conn_id, chat_id, muted=False, mute_until=None)
+            return False
+    return bool(s["muted"])
+
+
+def set_biz_chat_settings(conn_id: str, chat_id: int,
+                           muted: Optional[bool] = None,
+                           mute_until: Optional[str] = None,
+                           custom_instruction: Optional[str] = None):
+    current = get_biz_chat_settings(conn_id, chat_id)
+    new_muted = int(muted) if muted is not None else current["muted"]
+    new_until = mute_until if mute_until is not None else current["mute_until"]
+    new_instr = custom_instruction if custom_instruction is not None else current["custom_instruction"]
+    with _conn() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO biz_chat_settings
+               (conn_id, chat_id, muted, mute_until, custom_instruction)
+               VALUES (?, ?, ?, ?, ?)""",
+            (conn_id, chat_id, new_muted, new_until, new_instr),
+        )
+        conn.commit()
 
 
 def set_biz_chat_muted(conn_id: str, chat_id: int, muted: bool):
-    with _conn() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO biz_chat_settings (conn_id, chat_id, muted) VALUES (?, ?, ?)",
-            (conn_id, chat_id, int(muted)),
-        )
-        conn.commit()
+    set_biz_chat_settings(conn_id, chat_id, muted=muted, mute_until=None)
 
 
 def save_biz_message(conn_id: str, chat_id: int, role: str, content: str):
