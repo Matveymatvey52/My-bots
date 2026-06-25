@@ -108,9 +108,9 @@ async def _send_daily_summary(app: Application, user_id: int, date: str, name: s
         "October","октября").replace("November","ноября").replace("December","декабря")
 
     if morning:
-        header = f"☀️ *Доброе утро, {name}!*\n📅 На сегодня, {date_label}:"
+        header = f"☀️ Доброе утро, {name}!\n📅 На сегодня, {date_label}:"
     else:
-        header = f"🌙 *Добрый вечер, {name}!*\n📅 На завтра, {date_label}:"
+        header = f"🌙 Добрый вечер, {name}!\n📅 На завтра, {date_label}:"
 
     if not tasks:
         text = f"{header}\n\nДел нет — можно отдыхать 🎉"
