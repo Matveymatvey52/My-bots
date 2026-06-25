@@ -302,9 +302,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.photo[-1].file_id
     photo_db_id = save_photo(user_id, file_id)
     _pending_photo[user_id] = photo_db_id
+    name = load_settings(user_id).get("name", "")
     caption = update.message.caption or ""
     prompt = f"Пользователь прислал фото (photo_id={photo_db_id}). {caption} Спроси когда напомнить об этом фото или что с ним сделать. Когда создаёшь задачу через Сэма — включи '[photo:{photo_db_id}]' в текст задачи."
-    reply = await process_with_mary(user_id, prompt)
+    reply = await process_with_mary(user_id, prompt, name)
     await update.message.reply_text(reply)
 
 
