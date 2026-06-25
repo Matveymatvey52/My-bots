@@ -17,10 +17,11 @@ def now_msk() -> datetime:
     return datetime.now(tz=MSK)
 
 from dotenv import load_dotenv
-from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
+from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     BusinessConnectionHandler,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     InlineQueryHandler,
@@ -30,8 +31,10 @@ from telegram.ext import (
 
 from agents import generate_business_reply, process_with_mary
 from db import (clear_history, delete_business_connection, get_bot_stats,
-                get_tasks_for_day, get_upcoming_tasks, get_user_by_connection,
-                init_db, load_biz_history, save_biz_message, save_business_connection)
+                get_biz_chat_muted, get_connection_for_user, get_tasks_for_day,
+                get_upcoming_tasks, get_user_by_connection, init_db,
+                load_biz_history, save_biz_message, save_business_connection,
+                set_biz_chat_muted)
 from settings import get_all_user_ids
 from scheduler_jobs import setup_scheduler
 from settings import is_onboarding_done, load_settings, save_settings
@@ -55,10 +58,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start — сбрасывает настройки и начинает онбординг заново."""
     user_id = update.effective_user.id
 
-    # Telegram Business посылает /start bizChat<id> при нажатии «Управление ботом» — не сбрасываем бота
+    # Telegram Business посылает /start bizChat<chat_id> при нажатии «Управление ботом»
     if context.args and context.args[0].startswith("bizChat"):
-        if is_onboarding_done(user_id):
-            await update.message.reply_text("👋 Привет! Чем могу помочь?")
+        try:
+            biz_chat_id = int(context.args[0][len("bizChat"):])
+        except ValueError:
+            biz_chat_id = None
+
+        if biz_chat_id and is_onboarding_done(user_id):
+            conn = get_connection_for_user(user_id)
+            if conn:
+                conn_id = conn["connection_id"]
+                muted = get_biz_chat_muted(conn_id, biz_chat_id)
+                history = load_biz_history(conn_id, biz_chat_id, limit=6)
+
+                lines = ["⚙️ Управление чатом\n"]
+                if history:
+                    lines.append("Последние сообщения:")
+                    for m in history[-4:]:
+                        who = "← Они" if m["role"] == "user" else "→ Ты"
+                        preview = m["content"][:60] + ("…" if len(m["content"]) > 60 else "")
+                        lines.append(f"  {who}: {preview}")
+                    lines.append("")
+                lines.append(f"Автоответ: {'🔇 выключен' if muted else '✅ включён'}")
+
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "🔇 Выключить автоответ" if not muted else "✅ Включить автоответ",
+                        callback_data=f"biztoggle:{conn_id}:{biz_chat_id}",
+                    )
+                ]])
+                await update.message.reply_text("\n".join(lines), reply_markup=keyboard)
+                return
+
+        await update.message.reply_text("👋 Привет! Чем могу помочь?")
         return
 
     save_settings(user_id, {"onboarding_step": "ask_name", "onboarding_done": False})
@@ -444,8 +477,8 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
         parse_mode="Markdown",
     )
 
-    # Если разрешено отвечать — генерируем ответ от имени пользователя
-    if can_reply:
+    # Если разрешено отвечать и чат не замьючен — генерируем ответ
+    if can_reply and not get_biz_chat_muted(conn_id, msg.chat.id):
         name = load_settings(user_id).get("name", "")
 
         # Сохраняем входящее сообщение в БД
@@ -488,6 +521,37 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
                 chat_id=user_id,
                 text=f"⚠️ Не смогла ответить {sender}: {e}",
             )
+
+
+async def biz_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Кнопка включить/выключить автоответ для конкретного бизнес-чата."""
+    query = update.callback_query
+    await query.answer()
+    _, conn_id, chat_id_str = query.data.split(":", 2)
+    chat_id = int(chat_id_str)
+
+    muted = get_biz_chat_muted(conn_id, chat_id)
+    set_biz_chat_muted(conn_id, chat_id, not muted)
+    new_muted = not muted
+
+    history = load_biz_history(conn_id, chat_id, limit=6)
+    lines = ["⚙️ Управление чатом\n"]
+    if history:
+        lines.append("Последние сообщения:")
+        for m in history[-4:]:
+            who = "← Они" if m["role"] == "user" else "→ Ты"
+            preview = m["content"][:60] + ("…" if len(m["content"]) > 60 else "")
+            lines.append(f"  {who}: {preview}")
+        lines.append("")
+    lines.append(f"Автоответ: {'🔇 выключен' if new_muted else '✅ включён'}")
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "🔇 Выключить автоответ" if not new_muted else "✅ Включить автоответ",
+            callback_data=f"biztoggle:{conn_id}:{chat_id}",
+        )
+    ]])
+    await query.edit_message_text("\n".join(lines), reply_markup=keyboard)
 
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -611,6 +675,7 @@ def main():
     app.add_handler(CommandHandler("chatid", chatid_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(InlineQueryHandler(inline_query))
+    app.add_handler(CallbackQueryHandler(biz_toggle_callback, pattern=r"^biztoggle:"))
     app.add_handler(BusinessConnectionHandler(handle_business_connection))
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
 

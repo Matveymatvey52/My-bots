@@ -70,6 +70,14 @@ def init_db():
                 created_at TEXT    DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS biz_chat_settings (
+                conn_id TEXT    NOT NULL,
+                chat_id INTEGER NOT NULL,
+                muted   INTEGER DEFAULT 0,
+                PRIMARY KEY (conn_id, chat_id)
+            )
+        """)
         conn.commit()
 
 
@@ -280,6 +288,35 @@ def get_tasks_due_now(current_dt: datetime) -> list[dict]:
 def mark_time_notified(task_id: int):
     with _conn() as conn:
         conn.execute("UPDATE tasks SET time_notified = 1 WHERE id = ?", (task_id,))
+        conn.commit()
+
+
+def get_connection_for_user(user_id: int) -> Optional[dict]:
+    """Возвращает бизнес-подключение пользователя (первое найденное)."""
+    with _conn() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT connection_id, user_id, can_reply FROM business_connections WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_biz_chat_muted(conn_id: str, chat_id: int) -> bool:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT muted FROM biz_chat_settings WHERE conn_id = ? AND chat_id = ?",
+            (conn_id, chat_id),
+        ).fetchone()
+        return bool(row[0]) if row else False
+
+
+def set_biz_chat_muted(conn_id: str, chat_id: int, muted: bool):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO biz_chat_settings (conn_id, chat_id, muted) VALUES (?, ?, ?)",
+            (conn_id, chat_id, int(muted)),
+        )
         conn.commit()
 
 
