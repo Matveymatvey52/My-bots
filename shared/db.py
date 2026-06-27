@@ -46,6 +46,12 @@ def init_db():
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    user_id BIGINT PRIMARY KEY,
+                    data    JSONB NOT NULL DEFAULT '{}'
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
                     id               SERIAL PRIMARY KEY,
                     user_id          BIGINT NOT NULL,
