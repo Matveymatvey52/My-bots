@@ -17,7 +17,8 @@ SAM_SYSTEM = """\
 Ты — Сэм, менеджер расписания. Получаешь задания от Мери, выполняешь их инструментами.
 
 Правила:
-- Несколько задач → вызывай create_task для каждой отдельно
+- Повторяющиеся задачи (каждый час, каждые N минут) → ВСЕГДА используй create_recurring_tasks, не create_task вручную по одной
+- Несколько разных задач → вызывай create_task для каждой отдельно
 - Если задание содержит время и это время уже прошло — НЕ создавай задачу, сообщи что время уже прошло
 - Если пользователь явно говорит «создай новую» или «всё равно создай» — создавай без проверок
 - Удалить задачу → сначала get_tasks чтобы найти id, потом delete_task(task_id)
@@ -70,6 +71,23 @@ DELETE_TASK_TOOL = {
     },
 }
 
+CREATE_RECURRING_TOOL = {
+    "name": "create_recurring_tasks",
+    "description": "Создать повторяющиеся задачи через равные промежутки времени. Используй когда пользователь просит напоминать каждый час, каждые N минут, несколько раз в день.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date":             {"type": "string",  "description": "Дата: YYYY-MM-DD"},
+            "start_time":       {"type": "string",  "description": "Начальное время: HH:MM"},
+            "end_time":         {"type": "string",  "description": "Конечное время: HH:MM (включительно)"},
+            "interval_minutes": {"type": "integer", "description": "Интервал в минутах (60 = каждый час, 30 = каждые полчаса)"},
+            "text":             {"type": "string",  "description": "Текст задачи"},
+            "reminder_minutes": {"type": "integer", "description": "За сколько минут до каждого события напомнить. null если не нужно."},
+        },
+        "required": ["date", "start_time", "end_time", "interval_minutes", "text"],
+    },
+}
+
 GET_TASKS_TOOL = {
     "name": "get_tasks",
     "description": "Получить дела на дату или все предстоящие.",
@@ -82,7 +100,7 @@ GET_TASKS_TOOL = {
     },
 }
 
-SAM_TOOLS = [CREATE_TASK_TOOL, DELETE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS_TOOL]
+SAM_TOOLS = [CREATE_TASK_TOOL, CREATE_RECURRING_TOOL, DELETE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS_TOOL]
 
 
 async def process_with_sam(user_id: int, mary_message: str) -> str:
@@ -110,7 +128,29 @@ async def process_with_sam(user_id: int, mary_message: str) -> str:
             name = tb.name
             data = tb.input
 
-            if name == "create_task":
+            if name == "create_recurring_tasks":
+                from datetime import timedelta as _td
+                date = data["date"]
+                start = datetime.strptime(f"{date} {data['start_time']}", "%Y-%m-%d %H:%M")
+                end   = datetime.strptime(f"{date} {data['end_time']}",   "%Y-%m-%d %H:%M")
+                interval = int(data["interval_minutes"])
+                raw_reminder = data.get("reminder_minutes")
+                reminder_val = int(raw_reminder) if isinstance(raw_reminder, (int, float)) and raw_reminder > 0 else None
+                created_times = []
+                current = start
+                while current <= end:
+                    add_task(
+                        user_id=user_id,
+                        date=date,
+                        text=data["text"],
+                        time=current.strftime("%H:%M"),
+                        reminder_minutes=reminder_val,
+                    )
+                    created_times.append(current.strftime("%H:%M"))
+                    current += _td(minutes=interval)
+                result = f"Создано {len(created_times)} задач: {', '.join(created_times)}."
+
+            elif name == "create_task":
                 raw_time = data.get("time")
                 time_val = None if (raw_time is None or str(raw_time).lower() in ("null", "none", "")) else raw_time
                 raw_reminder = data.get("reminder_minutes")
