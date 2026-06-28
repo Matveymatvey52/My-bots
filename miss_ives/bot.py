@@ -12,6 +12,7 @@ from telegram.ext import (
     Application,
     BusinessConnectionHandler,
     CallbackQueryHandler,
+    CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
