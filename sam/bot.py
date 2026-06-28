@@ -11,6 +11,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from sam.agent import process_with_sam
 from shared.hq import get_hq_chat_id, set_hq_chat_id
+from shared.settings import load_settings
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -74,10 +75,11 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             report = f"Что-то пошло не так: {e}"
         await msg.reply_text(f"Мери, {report}")
     else:
-        # Прямое обращение человека в Штабе — работаем с его собственным user_id
-        logger.info("Сэм: прямой запрос от user %d: %s", sender_id, body[:80])
+        # Прямое обращение человека в Штабе — работаем с его собственным user_id и именем
+        name = load_settings(sender_id).get("name", "") or "пользователь"
+        logger.info("Сэм: прямой запрос от %s (%d): %s", name, sender_id, body[:80])
         try:
-            report = await process_with_sam(sender_id, body)
+            report = await process_with_sam(sender_id, body, requester=name)
         except Exception as e:
             logger.error("Сэм: ошибка выполнения: %s", e)
             report = f"Что-то пошло не так: {e}"

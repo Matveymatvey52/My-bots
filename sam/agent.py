@@ -13,8 +13,9 @@ def now_msk() -> datetime:
 
 client = AsyncAnthropic()
 
-SAM_SYSTEM = """\
-Ты — Сэм, менеджер расписания. Получаешь задания от Мери, выполняешь их инструментами.
+def _sam_system(requester: str) -> str:
+    return f"""\
+Ты — Сэм, менеджер расписания. Получаешь задания от {requester}, выполняешь их инструментами.
 
 Правила:
 - Повторяющиеся задачи (каждый час, каждые N минут) → ВСЕГДА используй create_recurring_tasks, не create_task вручную по одной
@@ -26,7 +27,8 @@ SAM_SYSTEM = """\
   ✂️ стрижка/салон, 📞 звонок, 🤝 встреча, 🏥 врач/здоровье, 🎂 праздник,
   🏋️ спорт, 🍽️ обед/ужин, ✈️ поездка, 💊 таблетки, 📝 документы,
   🛒 покупки, 💰 финансы, 🎓 учёба, 🎮 досуг — и т.д.
-- После выполнения пиши краткий отчёт Мери (2-3 предложения): что сделал, детали.\
+- После выполнения пиши краткий отчёт для {requester} (2-3 предложения): что сделал, детали.
+- Обращайся к собеседнику по имени ({requester}), не путай его с другими.\
 """
 
 CREATE_TASK_TOOL = {
@@ -103,17 +105,17 @@ GET_TASKS_TOOL = {
 SAM_TOOLS = [CREATE_TASK_TOOL, CREATE_RECURRING_TOOL, DELETE_TASK_TOOL, UPDATE_SETTINGS_TOOL, GET_TASKS_TOOL]
 
 
-async def process_with_sam(user_id: int, mary_message: str) -> str:
-    """Получает задание от Мери, выполняет инструментами, возвращает отчёт."""
+async def process_with_sam(user_id: int, task_message: str, requester: str = "Мери") -> str:
+    """Выполняет задание инструментами, возвращает отчёт. requester — кто обратился (Мери или имя человека)."""
     now = now_msk()
     time_info = f"\n\n[Системная информация: сейчас {now.strftime('%H:%M')} МСК, дата {now.strftime('%Y-%m-%d')}]"
-    messages = [{"role": "user", "content": f"Задание от Мери:\n{mary_message}{time_info}"}]
+    messages = [{"role": "user", "content": f"Задание от {requester}:\n{task_message}{time_info}"}]
 
     for _ in range(6):
         response = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
-            system=SAM_SYSTEM,
+            system=_sam_system(requester),
             messages=messages,
             tools=SAM_TOOLS,
         )
