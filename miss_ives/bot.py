@@ -287,6 +287,24 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ives_agent.resolve_mary_response(msg.reply_to_message.message_id, msg.text)
         return
 
+    # Прочие сообщения от Мери игнорируем (чтобы не зациклиться)
+    if sender_id == MARY_BOT_ID:
+        return
+
+    # Человек обращается к Мисс Айвз по имени прямо в Штабе
+    low = msg.text.lower()
+    if low.startswith("мисс айвз") or low.startswith("айвз"):
+        body = re.sub(r'^(мисс\s+айвз|айвз)[\s,]+', '', msg.text, flags=re.IGNORECASE).strip()
+        if body:
+            name = load_settings(sender_id).get("name", "")
+            try:
+                reply = await ives_agent.process_direct(body, name)
+            except Exception as e:
+                logger.error("Мисс Айвз: ошибка прямого ответа: %s", e)
+                reply = f"Ой, не получилось ответить: {e}"
+            await msg.reply_text(reply)
+        return
+
 
 async def sethq_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/sethq — Мисс Айвз тоже запоминает эту группу как Штаб."""

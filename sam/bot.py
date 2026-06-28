@@ -64,20 +64,24 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     body = re.sub(r'^сэм[\s,]+', '', text, flags=re.IGNORECASE).strip()
     user_id, task_description = _extract_user_id(body)
 
-    if not user_id:
-        logger.warning("Сэм: сообщение без [user:ID], игнорирую: %s", text[:80])
-        return
-
-    logger.info("Сэм получил задание для user %d: %s", user_id, task_description[:80])
-
-    try:
-        report = await process_with_sam(user_id, task_description)
-    except Exception as e:
-        logger.error("Сэм: ошибка выполнения: %s", e)
-        report = f"Что-то пошло не так: {e}"
-
-    # Отвечаем REPLY на конкретное сообщение Мери — она определит ответ по message_id
-    await msg.reply_text(f"Мери, {report}")
+    if user_id:
+        # Задание от Мери (содержит [user:ID]) — отвечаем reply, она поймает по message_id
+        logger.info("Сэм получил задание для user %d: %s", user_id, task_description[:80])
+        try:
+            report = await process_with_sam(user_id, task_description)
+        except Exception as e:
+            logger.error("Сэм: ошибка выполнения: %s", e)
+            report = f"Что-то пошло не так: {e}"
+        await msg.reply_text(f"Мери, {report}")
+    else:
+        # Прямое обращение человека в Штабе — работаем с его собственным user_id
+        logger.info("Сэм: прямой запрос от user %d: %s", sender_id, body[:80])
+        try:
+            report = await process_with_sam(sender_id, body)
+        except Exception as e:
+            logger.error("Сэм: ошибка выполнения: %s", e)
+            report = f"Что-то пошло не так: {e}"
+        await msg.reply_text(report)
 
 
 async def sethq_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

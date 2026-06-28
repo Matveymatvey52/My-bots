@@ -50,6 +50,27 @@ def resolve_mary_response(reply_to_id: int, text: str):
         future.set_result(text)
 
 
+async def process_direct(text: str, owner_name: str = "") -> str:
+    """Прямой разговор с владельцем в Штабе (Мисс Айвз отвечает как секретарь)."""
+    now = now_msk()
+    who = f" Твоего начальника зовут {owner_name}." if owner_name else ""
+    system = (
+        f"Ты — Мисс Айвз, личный секретарь.{who}\n"
+        f"Сейчас {now.strftime('%H:%M %d.%m.%Y')} МСК.\n"
+        "Ты ведёшь деловую переписку от лица начальника через Telegram Business "
+        "и помогаешь ему по секретарским вопросам.\n"
+        "Отвечай вежливо, по делу, коротко (1-3 предложения), на русском. "
+        "Не упоминай, что ты ИИ или бот."
+    )
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=512,
+        system=system,
+        messages=[{"role": "user", "content": text}],
+    )
+    return next((b.text for b in response.content if b.type == "text"), "")
+
+
 def _web_search(query: str) -> str:
     try:
         with DDGS() as ddgs:

@@ -265,6 +265,16 @@ async def _handle_hq(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text(f"Мисс Айвз, вот расписание:\n{schedule}")
         return
 
+    # Прочие сообщения от ботов игнорируем (чтобы не зациклиться)
+    if sender_id in (SAM_BOT_ID, MISS_IVES_BOT_ID):
+        return
+
+    # Человек обращается к Мери по имени прямо в Штабе
+    if text.lower().startswith("мери"):
+        body = re.sub(r'^мери[\s,]+', '', text, flags=re.IGNORECASE).strip()
+        if body:
+            await _route_text(sender_id, body, update, context)
+
 
 # ── Команды ───────────────────────────────────
 
