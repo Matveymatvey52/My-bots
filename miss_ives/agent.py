@@ -17,18 +17,27 @@ client = AsyncAnthropic()
 # заполняется в ask_mary_for_schedule, разрешается в miss_ives/bot.py
 _pending_mary: dict[int, asyncio.Future] = {}
 
-HQ_CHAT_ID: int = 0   # устанавливается из main.py
-MARY_BOT_ID: int = 0  # устанавливается из main.py
+HQ_CHAT_ID: int = 0          # устанавливается из main.py
+MARY_BOT_ID: int = 0         # устанавливается из main.py
+MARY_BOT_USERNAME: str = ""  # устанавливается из main.py
 
 
-async def ask_mary_for_schedule(bot, user_id: int, question: str = "расписание") -> str:
-    """Отправляет запрос Мери в HQ и ждёт её ответа."""
-    if not HQ_CHAT_ID:
+async def ask_mary_for_schedule(bot, user_id: int, owner_name: str = "") -> str:
+    """Запрашивает расписание у Мери через /schedule@Mary команду в HQ.
+    Сначала пишет натуральный запрос для отображения, затем команду для доставки."""
+    if not HQ_CHAT_ID or not MARY_BOT_USERNAME:
         return "Расписание недоступно."
     try:
+        name_display = owner_name or f"#{user_id}"
+        # Натуральное сообщение для отображения в Штабе
+        await bot.send_message(
+            chat_id=HQ_CHAT_ID,
+            text=f"Мери, расскажи о планах {name_display} на ближайшие дни? 📅",
+        )
+        # Команда с @упоминанием — гарантированная доставка Мери
         msg = await bot.send_message(
             chat_id=HQ_CHAT_ID,
-            text=f"Мери, [user:{user_id}] {question}",
+            text=f"/schedule@{MARY_BOT_USERNAME} [user:{user_id}]",
         )
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
@@ -36,7 +45,7 @@ async def ask_mary_for_schedule(bot, user_id: int, question: str = "распис
         try:
             return await asyncio.wait_for(asyncio.shield(future), timeout=30.0)
         except asyncio.TimeoutError:
-            return "Мери не ответила вовремя."
+            return "расписание временно недоступно"
         finally:
             _pending_mary.pop(msg.message_id, None)
     except Exception as e:

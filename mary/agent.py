@@ -6,6 +6,7 @@ from typing import Callable, Optional
 from anthropic import AsyncAnthropic
 from shared.db import load_history, save_message
 from shared.settings import load_settings
+from sam.agent import process_with_sam
 
 MSK = timezone(timedelta(hours=3))
 
@@ -15,13 +16,9 @@ def now_msk() -> datetime:
 client = AsyncAnthropic()
 MAX_HISTORY = 20
 
-# pending futures: hq_message_id → Future[str]
-# заполняются в ask_sam, резолвятся в mary/bot.py
-_pending_sam: dict[int, asyncio.Future] = {}
-
 HQ_CHAT_ID: int = 0          # устанавливается из main.py
 SAM_BOT_ID: int = 0          # устанавливается из main.py
-SAM_BOT_USERNAME: str = ""   # устанавливается из main.py
+SAM_BOT = None               # sam_app.bot — для постинга от имени Сэма в Штаб
 MISS_IVES_BOT_ID: int = 0
 
 
@@ -77,40 +74,35 @@ CONTACT_SAM_TOOL = {
 }
 
 
-async def ask_sam(bot, user_id: int, task_description: str) -> str:
-    """Отправляет задание Сэму через /task@username в HQ и ждёт его ответа (reply).
-    Команда с @упоминанием гарантированно доставляется боту Telegram'ом."""
+async def ask_sam(mary_bot, user_id: int, task_description: str) -> str:
+    """Прямой вызов Сэма + оба бота пишут в Штаб для живого отображения."""
     if not HQ_CHAT_ID:
         return "HQ не настроен."
-    if not SAM_BOT_USERNAME:
-        return "SAM_BOT_USERNAME не задан — перезапусти сервис."
     try:
         name = load_settings(user_id).get("name", "") or f"#{user_id}"
-        text = (
-            f"/task@{SAM_BOT_USERNAME} [user:{user_id}]\n"
-            f"────────────────\n"
-            f"👤 {name}\n\n"
-            f"{task_description}"
-        )
-        msg = await bot.send_message(chat_id=HQ_CHAT_ID, text=text)
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future = loop.create_future()
-        _pending_sam[msg.message_id] = future
-        try:
-            return await asyncio.wait_for(asyncio.shield(future), timeout=45.0)
-        except asyncio.TimeoutError:
-            return "Сэм не успел ответить — попробуй ещё раз 😔"
-        finally:
-            _pending_sam.pop(msg.message_id, None)
+
+        # Краткое натуральное сообщение от Мери в Штаб
+        task_line = ""
+        for line in task_description.split('\n'):
+            if line.strip().lower().startswith("задача:"):
+                task_line = line.split(":", 1)[1].strip()
+                break
+        hq_note = f"Сэм, {name} просит: {task_line}" if task_line else f"Сэм, задание для {name} 📋"
+        await mary_bot.send_message(chat_id=HQ_CHAT_ID, text=hq_note)
+
+        # Прямой вызов — никакого Telegram между Мери и Сэмом
+        report = await process_with_sam(user_id, task_description)
+
+        # Сэм пишет в Штаб от своего имени
+        if SAM_BOT:
+            try:
+                await SAM_BOT.send_message(chat_id=HQ_CHAT_ID, text=report)
+            except Exception as e:
+                pass  # не критично, результат уже есть
+
+        return report
     except Exception as e:
-        return f"Ошибка связи с Сэмом: {e}"
-
-
-def resolve_sam_response(reply_to_id: int, text: str):
-    """Вызывается из mary/bot.py когда Сэм отвечает в HQ на наше сообщение."""
-    future = _pending_sam.pop(reply_to_id, None)
-    if future and not future.done():
-        future.set_result(text)
+        return f"Ошибка при выполнении задания: {e}"
 
 
 async def process_with_mary(

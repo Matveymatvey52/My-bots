@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import re
@@ -18,55 +17,10 @@ logger = logging.getLogger(__name__)
 
 MSK = timezone(timedelta(hours=3))
 
-HQ_CHAT_ID: int = 0          # устанавливается из .env в main.py
-_my_id: int = 0               # id самого Сэма, устанавливается при старте
-_rate_limit: dict[int, float] = {}   # sender_id → timestamp последнего ответа
+HQ_CHAT_ID: int = 0
+_my_id: int = 0
+_rate_limit: dict[int, float] = {}
 RATE_LIMIT_SEC = 3
-
-
-def _extract_user_id(text: str) -> tuple:
-    """Извлекает [user:ID] из текста, возвращает (user_id, очищенный текст)."""
-    m = re.search(r'\[user:(\d+)\]', text)
-    if m:
-        uid = int(m.group(1))
-        clean = re.sub(r'\[user:\d+\]', '', text).strip()
-        return uid, clean
-    return None, text
-
-
-async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/task@SamBot [user:ID] — задание от Мери через команду с @упоминанием.
-    Telegram гарантирует доставку команд с @username боту-получателю."""
-    msg = update.message
-    if not msg or not msg.text:
-        return
-    if msg.chat.id != HQ_CHAT_ID:
-        return
-
-    full_text = msg.text  # "/task@SamBot [user:123]\nдействие: ..."
-    lines = full_text.split('\n', 1)
-    first_line = lines[0]
-    task_body = lines[1].strip() if len(lines) > 1 else ""
-
-    m = re.search(r'\[user:(\d+)\]', first_line)
-    if not m:
-        return
-    user_id = int(m.group(1))
-
-    logger.info("Сэм получил /task для user %d: %s", user_id, task_body[:80])
-
-    try:
-        await msg.reply_text("⚙️ Принял, обрабатываю...")
-    except Exception as e:
-        logger.error("Сэм: не смог отправить ack: %s", e)
-
-    try:
-        report = await process_with_sam(user_id, task_body)
-    except Exception as e:
-        logger.error("Сэм: ошибка выполнения: %s", e)
-        report = f"Что-то пошло не так: {e}"
-
-    await msg.reply_text(report)
 
 
 async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -117,6 +71,5 @@ def create_app() -> Application:
     token = os.environ["SAM_BOT_TOKEN"]
     app = Application.builder().token(token).concurrent_updates(True).build()
     app.add_handler(CommandHandler("sethq", sethq_command))
-    app.add_handler(CommandHandler("task", task_command))   # задания от Мери
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_hq_message))
     return app

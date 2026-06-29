@@ -53,6 +53,16 @@ async def main():
     # Ждём ID Мери из БД (она может стартовать позже)
     mary_id = await _wait_for_mary_id(timeout=60.0)
 
+    # Получаем username Мери для /schedule@MaryBot команды
+    mary_username = ""
+    if mary_id:
+        try:
+            mary_chat = await ives_app.bot.get_chat(mary_id)
+            mary_username = mary_chat.username or ""
+            logger.info("Мери username: @%s", mary_username)
+        except Exception as e:
+            logger.warning("Не смог получить username Мери: %s", e)
+
     hq_chat_id = get_hq_chat_id() or int(os.environ.get("HQ_CHAT_ID", 0))
     if not hq_chat_id:
         logger.warning("HQ_CHAT_ID не задан. Напиши /sethq в группе «Штаб».")
@@ -61,8 +71,9 @@ async def main():
     ives_bot_module.HQ_CHAT_ID  = hq_chat_id
     ives_bot_module.MARY_BOT_ID = mary_id
     ives_bot_module._my_id      = ives_me.id
-    ives_agent_module.HQ_CHAT_ID  = hq_chat_id
-    ives_agent_module.MARY_BOT_ID = mary_id
+    ives_agent_module.HQ_CHAT_ID       = hq_chat_id
+    ives_agent_module.MARY_BOT_ID      = mary_id
+    ives_agent_module.MARY_BOT_USERNAME = mary_username
 
     await ives_app.start()
 

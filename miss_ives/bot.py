@@ -139,8 +139,7 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
         # Запрашиваем расписание у Мери через HQ
         tasks_context = await ives_agent.ask_mary_for_schedule(
-            context.bot, user_id,
-            question="дай расписание на ближайшие дни"
+            context.bot, user_id, owner_name=name
         )
 
         history = load_biz_history(conn_id, msg.chat.id)
@@ -282,20 +281,17 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if sender_id == _my_id:
         return
 
+    # Ответ Мери — резолвим до rate limiting (быстрый ответ <3с иначе дропнется)
+    if sender_id == MARY_BOT_ID:
+        if msg.reply_to_message:
+            ives_agent.resolve_mary_response(msg.reply_to_message.message_id, msg.text)
+        return
+
     # Rate limiting для защиты от петель
     now = time.time()
     if now - _rate_limit.get(sender_id, 0) < 3:
         return
     _rate_limit[sender_id] = now
-
-    # Ответ Мери на наш запрос (reply на наше сообщение)
-    if sender_id == MARY_BOT_ID and msg.reply_to_message:
-        ives_agent.resolve_mary_response(msg.reply_to_message.message_id, msg.text)
-        return
-
-    # Прочие сообщения от Мери игнорируем (чтобы не зациклиться)
-    if sender_id == MARY_BOT_ID:
-        return
 
     # Человек обращается к Мисс Айвз по имени прямо в Штабе
     low = msg.text.lower()

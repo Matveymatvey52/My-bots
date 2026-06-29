@@ -60,7 +60,7 @@ async def main():
     mary_bot_module._my_id           = mary_me.id
     mary_agent_module.HQ_CHAT_ID       = hq_chat_id
     mary_agent_module.SAM_BOT_ID       = sam_me.id
-    mary_agent_module.SAM_BOT_USERNAME = sam_me.username  # для /task@username команды
+    mary_agent_module.SAM_BOT          = sam_app.bot      # Сэм пишет в Штаб от своего имени
     mary_agent_module.MISS_IVES_BOT_ID = ives_id
 
     sam_bot_module.HQ_CHAT_ID = hq_chat_id

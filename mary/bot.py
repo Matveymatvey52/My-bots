@@ -237,10 +237,8 @@ async def _handle_hq(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = msg.text.strip()
 
-    # Сообщения Сэма: ack игнорируем, всё остальное — резолвим Future
-    if sender_id == SAM_BOT_ID and msg.reply_to_message:
-        if text != "⚙️ Принял, обрабатываю...":
-            mary_agent.resolve_sam_response(msg.reply_to_message.message_id, text)
+    # Сообщения Сэма в Штабе — просто отображение, игнорируем
+    if sender_id == SAM_BOT_ID:
         return
 
     # Rate limiting для всех остальных
@@ -358,6 +356,28 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for uid, cnt in s["per_user"][:10]:
             lines.append(f"  `{uid}` — {cnt} сообщ.")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/schedule@MaryBot [user:ID] — запрос расписания от Мисс Айвз через HQ."""
+    msg = update.message
+    if not msg or msg.chat.id != HQ_CHAT_ID:
+        return
+    m = re.search(r'\[user:(\d+)\]', msg.text or "")
+    if not m:
+        return
+    uid = int(m.group(1))
+    name = load_settings(uid).get("name", "") or f"#{uid}"
+    tasks = get_upcoming_tasks(uid)
+    if tasks:
+        lines = []
+        for t in tasks[:10]:
+            time_str = f" в {t['time']}" if t["time"] else ""
+            lines.append(f"• {t['date']}{time_str}: {t['text']}")
+        schedule_text = "\n".join(lines)
+    else:
+        schedule_text = "предстоящих задач нет"
+    await msg.reply_text(f"Мисс Айвз, вот расписание {name}:\n{schedule_text}")
 
 
 async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -622,6 +642,7 @@ def create_app() -> Application:
     app.add_handler(CommandHandler("tasks", tasks_command))
     app.add_handler(CommandHandler("all", all_tasks_command))
     app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("schedule", schedule_command))
     app.add_handler(CommandHandler("chatid", chatid_command))
     app.add_handler(CommandHandler("sethq", sethq_command))
     app.add_handler(CommandHandler("stats", stats_command))
