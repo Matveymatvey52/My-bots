@@ -83,7 +83,7 @@ async def ask_sam(bot, user_id: int, task_description: str) -> str:
     try:
         name = load_settings(user_id).get("name", "") or f"#{user_id}"
         text = (
-            f"📋 Сэм, задание\n"
+            f"Сэм, задание 📋\n"
             f"────────────────\n"
             f"👤 {name}  [user:{user_id}]\n\n"
             f"{task_description}"
