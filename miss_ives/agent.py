@@ -30,7 +30,7 @@ async def ask_mary_for_schedule(bot, user_id: int, question: str = "распис
             chat_id=HQ_CHAT_ID,
             text=f"Мери, [user:{user_id}] {question}",
         )
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         _pending_mary[msg.message_id] = future
         try:
@@ -148,7 +148,7 @@ async def generate_business_reply(
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use" and block.name == "web_search":
-                    result = await asyncio.get_event_loop().run_in_executor(
+                    result = await asyncio.get_running_loop().run_in_executor(
                         None, _web_search, block.input["query"]
                     )
                     tool_results.append({

@@ -34,7 +34,6 @@ def save_settings(user_id: int, updates: dict):
                     """,
                     (user_id, json.dumps(current, ensure_ascii=False)),
                 )
-            conn.commit()
     except Exception as e:
         logger.error("save_settings error for %d: %s", user_id, e)
 

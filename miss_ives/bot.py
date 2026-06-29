@@ -176,10 +176,16 @@ async def biz_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
 
-    parts = query.data.split(":", 3)
-    action = parts[1]
-    conn_id = parts[2]
-    chat_id = int(parts[3])
+    parts = query.data.split(":")
+    action_type = parts[1]
+    if action_type == "preset":
+        action = f"preset:{parts[2]}"
+        conn_id = parts[3]
+        chat_id = int(parts[4])
+    else:
+        action = action_type
+        conn_id = parts[2]
+        chat_id = int(parts[3])
     user_id = query.from_user.id
 
     PRESETS = {
@@ -329,7 +335,9 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def create_app() -> Application:
     token = os.environ["MISS_IVES_BOT_TOKEN"]
-    app = Application.builder().token(token).build()
+    # concurrent_updates(True): Мисс Айвз ждёт ответ Мери из HQ (расписание) —
+    # без параллельной обработки апдейтов это дедлок.
+    app = Application.builder().token(token).concurrent_updates(True).build()
 
     app.add_handler(BusinessConnectionHandler(handle_business_connection))
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))

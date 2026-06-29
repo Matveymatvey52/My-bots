@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Callable, Optional
 from anthropic import AsyncAnthropic
 from shared.db import load_history, save_message
+from shared.settings import load_settings
 
 MSK = timezone(timedelta(hours=3))
 
@@ -60,7 +61,14 @@ CONTACT_SAM_TOOL = {
         "properties": {
             "message": {
                 "type": "string",
-                "description": "Чёткое задание: что делать, дата, время, текст задачи или какие настройки менять.",
+                "description": (
+                    "Задание для Сэма. Пиши строго по строкам:\n"
+                    "действие: записать / удалить / показать / изменить настройки\n"
+                    "дата: YYYY-MM-DD\n"
+                    "время: HH:MM (если есть)\n"
+                    "задача: текст с подходящим эмодзи\n"
+                    "напомнить за: N минут (если просили, иначе не пиши)"
+                ),
             }
         },
         "required": ["message"],
@@ -73,11 +81,15 @@ async def ask_sam(bot, user_id: int, task_description: str) -> str:
     if not HQ_CHAT_ID:
         return "HQ не настроен."
     try:
-        msg = await bot.send_message(
-            chat_id=HQ_CHAT_ID,
-            text=f"Сэм, [user:{user_id}] {task_description}",
+        name = load_settings(user_id).get("name", "") or f"#{user_id}"
+        text = (
+            f"📋 Сэм, задание\n"
+            f"────────────────\n"
+            f"👤 {name}  [user:{user_id}]\n\n"
+            f"{task_description}"
         )
-        loop = asyncio.get_event_loop()
+        msg = await bot.send_message(chat_id=HQ_CHAT_ID, text=text)
+        loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         _pending_sam[msg.message_id] = future
         try:

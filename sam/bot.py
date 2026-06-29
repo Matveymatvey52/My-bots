@@ -97,7 +97,7 @@ async def sethq_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def create_app() -> Application:
     token = os.environ["SAM_BOT_TOKEN"]
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).concurrent_updates(True).build()
     app.add_handler(CommandHandler("sethq", sethq_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_hq_message))
     return app

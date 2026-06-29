@@ -24,6 +24,7 @@ from shared.db import (
     clear_history, get_bot_stats, get_photo, get_tasks_for_day,
     get_upcoming_tasks, save_photo,
     get_tasks_needing_reminder, claim_summary_send, mark_reminder_sent,
+    get_tasks_due_now, mark_time_notified,
 )
 from shared.settings import (
     get_all_user_ids, is_onboarding_done, load_settings, save_settings,
@@ -234,18 +235,18 @@ async def _handle_hq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if sender_id == _my_id:
         return
 
-    # Rate limiting
+    text = msg.text.strip()
+
+    # Ответ Сэма на наш запрос — резолвим без rate limiting, иначе дропнется
+    if sender_id == SAM_BOT_ID and msg.reply_to_message:
+        mary_agent.resolve_sam_response(msg.reply_to_message.message_id, text)
+        return
+
+    # Rate limiting для всех остальных
     now = time.time()
     if now - _rate_limit.get(sender_id, 0) < 3:
         return
     _rate_limit[sender_id] = now
-
-    text = msg.text.strip()
-
-    # Ответ Сэма на наш запрос
-    if sender_id == SAM_BOT_ID and msg.reply_to_message:
-        mary_agent.resolve_sam_response(msg.reply_to_message.message_id, text)
-        return
 
     # Мисс Айвз спрашивает расписание
     if sender_id == MISS_IVES_BOT_ID and text.lower().startswith("мери"):
@@ -406,7 +407,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         aai.settings.api_key = os.environ["ASSEMBLYAI_API_KEY"]
         config = aai.TranscriptionConfig(language_code="ru")
         transcriber = aai.Transcriber(config=config)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         transcript = await loop.run_in_executor(None, lambda: transcriber.transcribe(tmp_path))
         if transcript.status == aai.TranscriptStatus.error:
             raise RuntimeError(transcript.error)
@@ -518,6 +519,21 @@ async def _send_scheduled(app: Application):
         except Exception as e:
             logger.error("Ошибка напоминания %d: %s", task["id"], e)
 
+    for task in get_tasks_due_now(now):
+        raw = task["text"]
+        photo_match = re.search(r'\[photo:(\d+)\]', raw)
+        clean = re.sub(r'\[photo:\d+\]', '', raw).strip()
+        text = f"⏰ *Пора:* *{clean}*"
+        try:
+            await app.bot.send_message(chat_id=task["user_id"], text=text, parse_mode="Markdown")
+            if photo_match:
+                photo = get_photo(int(photo_match.group(1)))
+                if photo:
+                    await app.bot.send_photo(chat_id=task["user_id"], photo=photo["file_id"])
+            mark_time_notified(task["id"])
+        except Exception as e:
+            logger.error("Ошибка уведомления по времени %d: %s", task["id"], e)
+
     for user_id in get_all_user_ids():
         s = load_settings(user_id)
         if not s.get("onboarding_done"):
@@ -597,7 +613,9 @@ async def post_init(app: Application):
 
 def create_app() -> Application:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-    app = Application.builder().token(token).post_init(post_init).build()
+    # concurrent_updates(True): пока Мери выполняет длинный запрос, другие апдейты
+    # (из HQ, от Miss Ives) не должны ждать в очереди.
+    app = Application.builder().token(token).post_init(post_init).concurrent_updates(True).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("tasks", tasks_command))
