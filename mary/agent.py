@@ -15,13 +15,7 @@ def now_msk() -> datetime:
 client = AsyncAnthropic()
 MAX_HISTORY = 20
 
-# pending futures: hq_message_id → Future[str]
-# заполняются в ask_sam, резолвятся в mary/bot.py
-_pending_sam: dict[int, asyncio.Future] = {}
-
 HQ_CHAT_ID: int = 0   # устанавливается из main.py
-SAM_BOT_ID: int = 0   # устанавливается из main.py
-MISS_IVES_BOT_ID: int = 0
 
 
 MARY_SYSTEM = """\
@@ -77,36 +71,41 @@ CONTACT_SAM_TOOL = {
 
 
 async def ask_sam(bot, user_id: int, task_description: str) -> str:
-    """Отправляет задание Сэму в HQ и ждёт его ответа (reply)."""
-    if not HQ_CHAT_ID:
-        return "HQ не настроен."
-    try:
+    """Выполняет задание Сэма напрямую; задание и результат логируются в HQ."""
+    from sam.agent import process_with_sam
+
+    # Постим задание в Штаб — чтобы всё было видно
+    if HQ_CHAT_ID and bot:
         name = load_settings(user_id).get("name", "") or f"#{user_id}"
-        text = (
+        hq_task = (
             f"📋 Сэм, задание\n"
             f"────────────────\n"
             f"👤 {name}  [user:{user_id}]\n\n"
             f"{task_description}"
         )
-        msg = await bot.send_message(chat_id=HQ_CHAT_ID, text=text)
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future = loop.create_future()
-        _pending_sam[msg.message_id] = future
         try:
-            return await asyncio.wait_for(asyncio.shield(future), timeout=45.0)
-        except asyncio.TimeoutError:
-            return "Сэм не успел ответить — попробуй ещё раз 😔"
-        finally:
-            _pending_sam.pop(msg.message_id, None)
+            await bot.send_message(chat_id=HQ_CHAT_ID, text=hq_task)
+        except Exception:
+            pass
+
+    try:
+        result = await asyncio.wait_for(
+            process_with_sam(user_id, task_description),
+            timeout=40.0,
+        )
+    except asyncio.TimeoutError:
+        result = "Сэм не успел ответить — попробуй ещё раз 😔"
     except Exception as e:
-        return f"Ошибка связи с Сэмом: {e}"
+        result = f"Ошибка при выполнении задачи: {e}"
 
+    # Постим результат в Штаб
+    if HQ_CHAT_ID and bot:
+        try:
+            await bot.send_message(chat_id=HQ_CHAT_ID, text=f"✅ Сэм: {result}")
+        except Exception:
+            pass
 
-def resolve_sam_response(reply_to_id: int, text: str):
-    """Вызывается из mary/bot.py когда Сэм отвечает в HQ на наше сообщение."""
-    future = _pending_sam.pop(reply_to_id, None)
-    if future and not future.done():
-        future.set_result(text)
+    return result
 
 
 async def process_with_mary(

@@ -59,8 +59,6 @@ async def main():
     mary_bot_module.MISS_IVES_BOT_ID = ives_id
     mary_bot_module._my_id           = mary_me.id
     mary_agent_module.HQ_CHAT_ID     = hq_chat_id
-    mary_agent_module.SAM_BOT_ID     = sam_me.id
-    mary_agent_module.MISS_IVES_BOT_ID = ives_id
 
     sam_bot_module.HQ_CHAT_ID = hq_chat_id
     sam_bot_module._my_id     = sam_me.id
