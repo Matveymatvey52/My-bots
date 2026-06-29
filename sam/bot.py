@@ -34,7 +34,44 @@ def _extract_user_id(text: str) -> tuple:
     return None, text
 
 
+async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/task@SamBot [user:ID] — задание от Мери через команду с @упоминанием.
+    Telegram гарантирует доставку команд с @username боту-получателю."""
+    msg = update.message
+    if not msg or not msg.text:
+        return
+    if msg.chat.id != HQ_CHAT_ID:
+        return
+
+    full_text = msg.text  # "/task@SamBot [user:123]\nдействие: ..."
+    lines = full_text.split('\n', 1)
+    first_line = lines[0]
+    task_body = lines[1].strip() if len(lines) > 1 else ""
+
+    m = re.search(r'\[user:(\d+)\]', first_line)
+    if not m:
+        return
+    user_id = int(m.group(1))
+
+    logger.info("Сэм получил /task для user %d: %s", user_id, task_body[:80])
+
+    try:
+        await msg.reply_text("⚙️ Принял, обрабатываю...")
+    except Exception as e:
+        logger.error("Сэм: не смог отправить ack: %s", e)
+
+    try:
+        report = await process_with_sam(user_id, task_body)
+    except Exception as e:
+        logger.error("Сэм: ошибка выполнения: %s", e)
+        report = f"Что-то пошло не так: {e}"
+
+    # "Мери, " — Mary's bot ловит этот префикс для резолва Future
+    await msg.reply_text(f"Мери, {report}")
+
+
 async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Прямое обращение человека к Сэму в Штабе: 'Сэм, ...'"""
     msg = update.message
     if not msg or not msg.text:
         return
@@ -44,14 +81,10 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     sender_id = msg.from_user.id if msg.from_user else 0
-
-    # Игнорируем собственные сообщения
     if sender_id == _my_id:
         return
 
     text = msg.text.strip()
-
-    # Реагируем только если обращаются к Сэму
     if not text.lower().startswith("сэм"):
         return
 
@@ -61,35 +94,15 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     _rate_limit[sender_id] = now
 
-    # Извлекаем user_id и задание
     body = re.sub(r'^сэм[\s,]+', '', text, flags=re.IGNORECASE).strip()
-    user_id, task_description = _extract_user_id(body)
-
-    if user_id:
-        # Немедленный ack — по его появлению в HQ понятно, получает ли Сэм бот-сообщения
-        try:
-            await msg.reply_text("⚙️ Принял, обрабатываю...")
-        except Exception as e:
-            logger.error("Сэм: не смог отправить ack: %s", e)
-
-        logger.info("Сэм получил задание для user %d: %s", user_id, task_description[:80])
-        try:
-            report = await process_with_sam(user_id, task_description)
-        except Exception as e:
-            logger.error("Сэм: ошибка выполнения: %s", e)
-            report = f"Что-то пошло не так: {e}"
-        # Префикс "Мери, " — Мери ловит именно этот reply для резолва Future
-        await msg.reply_text(f"Мери, {report}")
-    else:
-        # Прямое обращение человека в Штабе — работаем с его собственным user_id и именем
-        name = load_settings(sender_id).get("name", "") or "пользователь"
-        logger.info("Сэм: прямой запрос от %s (%d): %s", name, sender_id, body[:80])
-        try:
-            report = await process_with_sam(sender_id, body, requester=name)
-        except Exception as e:
-            logger.error("Сэм: ошибка выполнения: %s", e)
-            report = f"Что-то пошло не так: {e}"
-        await msg.reply_text(report)
+    name = load_settings(sender_id).get("name", "") or "пользователь"
+    logger.info("Сэм: прямой запрос от %s (%d): %s", name, sender_id, body[:80])
+    try:
+        report = await process_with_sam(sender_id, body, requester=name)
+    except Exception as e:
+        logger.error("Сэм: ошибка выполнения: %s", e)
+        report = f"Что-то пошло не так: {e}"
+    await msg.reply_text(report)
 
 
 async def sethq_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,5 +118,6 @@ def create_app() -> Application:
     token = os.environ["SAM_BOT_TOKEN"]
     app = Application.builder().token(token).concurrent_updates(True).build()
     app.add_handler(CommandHandler("sethq", sethq_command))
+    app.add_handler(CommandHandler("task", task_command))   # задания от Мери
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_hq_message))
     return app

@@ -19,8 +19,9 @@ MAX_HISTORY = 20
 # заполняются в ask_sam, резолвятся в mary/bot.py
 _pending_sam: dict[int, asyncio.Future] = {}
 
-HQ_CHAT_ID: int = 0   # устанавливается из main.py
-SAM_BOT_ID: int = 0   # устанавливается из main.py
+HQ_CHAT_ID: int = 0          # устанавливается из main.py
+SAM_BOT_ID: int = 0          # устанавливается из main.py
+SAM_BOT_USERNAME: str = ""   # устанавливается из main.py
 MISS_IVES_BOT_ID: int = 0
 
 
@@ -77,15 +78,18 @@ CONTACT_SAM_TOOL = {
 
 
 async def ask_sam(bot, user_id: int, task_description: str) -> str:
-    """Отправляет задание Сэму в HQ и ждёт его ответа (reply)."""
+    """Отправляет задание Сэму через /task@username в HQ и ждёт его ответа (reply).
+    Команда с @упоминанием гарантированно доставляется боту Telegram'ом."""
     if not HQ_CHAT_ID:
         return "HQ не настроен."
+    if not SAM_BOT_USERNAME:
+        return "SAM_BOT_USERNAME не задан — перезапусти сервис."
     try:
         name = load_settings(user_id).get("name", "") or f"#{user_id}"
         text = (
-            f"Сэм, задание 📋\n"
+            f"/task@{SAM_BOT_USERNAME} [user:{user_id}]\n"
             f"────────────────\n"
-            f"👤 {name}  [user:{user_id}]\n\n"
+            f"👤 {name}\n\n"
             f"{task_description}"
         )
         msg = await bot.send_message(chat_id=HQ_CHAT_ID, text=text)
