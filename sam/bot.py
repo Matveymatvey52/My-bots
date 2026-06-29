@@ -66,8 +66,7 @@ async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Сэм: ошибка выполнения: %s", e)
         report = f"Что-то пошло не так: {e}"
 
-    # "Мери, " — Mary's bot ловит этот префикс для резолва Future
-    await msg.reply_text(f"Мери, {report}")
+    await msg.reply_text(report)
 
 
 async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
