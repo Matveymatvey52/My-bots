@@ -43,7 +43,7 @@ async def ask_mary_for_schedule(bot, user_id: int, owner_name: str = "") -> str:
         future: asyncio.Future = loop.create_future()
         _pending_mary[msg.message_id] = future
         try:
-            return await asyncio.wait_for(asyncio.shield(future), timeout=30.0)
+            return await asyncio.wait_for(asyncio.shield(future), timeout=10.0)
         except asyncio.TimeoutError:
             return "расписание временно недоступно"
         finally:

@@ -81,13 +81,8 @@ async def ask_sam(mary_bot, user_id: int, task_description: str) -> str:
     try:
         name = load_settings(user_id).get("name", "") or f"#{user_id}"
 
-        # Краткое натуральное сообщение от Мери в Штаб
-        task_line = ""
-        for line in task_description.split('\n'):
-            if line.strip().lower().startswith("задача:"):
-                task_line = line.split(":", 1)[1].strip()
-                break
-        hq_note = f"Сэм, {name} просит: {task_line}" if task_line else f"Сэм, задание для {name} 📋"
+        # Полный блок задания виден в Штабе
+        hq_note = f"Сэм, задание от {name}:\n{task_description}"
         await mary_bot.send_message(chat_id=HQ_CHAT_ID, text=hq_note)
 
         # Прямой вызов — никакого Telegram между Мери и Сэмом

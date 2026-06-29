@@ -44,6 +44,9 @@ _rate_limit: dict[int, float] = {}
 # Ожидание ввода кастомной инструкции: user_id → (conn_id, chat_id)
 _pending_instruction: dict[int, tuple[str, int]] = {}
 
+# Запрашивать расписание только если сообщение об этом
+_SCHEDULE_KEYWORDS = ("план", "расписани", "встреч", "заня", "когда", "свобод", "завтра", "недел", "сегодня")
+
 
 # ── Панель управления бизнес-чатом ───────────
 
@@ -137,10 +140,13 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
         save_biz_message(conn_id, msg.chat.id, "user", msg.text)
 
-        # Запрашиваем расписание у Мери через HQ
-        tasks_context = await ives_agent.ask_mary_for_schedule(
-            context.bot, user_id, owner_name=name
-        )
+        # Расписание запрашиваем у Мери только когда оно нужно
+        if any(kw in msg.text.lower() for kw in _SCHEDULE_KEYWORDS):
+            tasks_context = await ives_agent.ask_mary_for_schedule(
+                context.bot, user_id, owner_name=name
+            )
+        else:
+            tasks_context = ""
 
         history = load_biz_history(conn_id, msg.chat.id)
         chat_settings = get_biz_chat_settings(conn_id, msg.chat.id)
@@ -160,6 +166,15 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
                 chat_id=msg.chat.id,
                 text=reply,
                 business_connection_id=conn_id,
+            )
+
+            # Уведомляем владельца: кому и что ответила
+            ts = now_msk().strftime("%H:%M")
+            short = reply[:80] + ("..." if len(reply) > 80 else "")
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"📤 Ответила *{sender}* в {ts}:\n«{short}»",
+                parse_mode="Markdown",
             )
         except Exception as e:
             logger.error("Не удалось отправить business-ответ: %s", e)
@@ -246,6 +261,18 @@ async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TY
         text, keyboard = _build_biz_panel(conn_id, chat_id)
         await msg.reply_text(f"✅ Инструкция сохранена!\n\n{text}", reply_markup=keyboard)
         return
+
+    # Ответ владельцу в личке (не команда и не ожидание инструкции)
+    if not msg.text.startswith("/"):
+        conn = get_connection_for_user(user_id)
+        if conn:
+            name = load_settings(user_id).get("name", "")
+            try:
+                reply = await ives_agent.process_direct(msg.text.strip(), name)
+            except Exception as e:
+                reply = f"Что-то пошло не так: {e}"
+            await msg.reply_text(reply)
+            return
 
     # Открытие панели через /start bizChat<id>
     if msg.text.startswith("/start"):
