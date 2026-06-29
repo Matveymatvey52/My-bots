@@ -237,9 +237,11 @@ async def _handle_hq(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = msg.text.strip()
 
-    # Ответ Сэма — резолвим до rate limiting (иначе быстрый ответ <3с дропнется)
+    # Ответ Сэма с результатом (префикс "Мери,") — резолвим Future
+    # Ack-сообщения Сэма ("Принял, обрабатываю...") НЕ начинаются с "Мери," → игнорируем
     if sender_id == SAM_BOT_ID and msg.reply_to_message:
-        mary_agent.resolve_sam_response(msg.reply_to_message.message_id, text)
+        if text.startswith("Мери,"):
+            mary_agent.resolve_sam_response(msg.reply_to_message.message_id, text)
         return
 
     # Rate limiting для всех остальных

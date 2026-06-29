@@ -66,13 +66,19 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, task_description = _extract_user_id(body)
 
     if user_id:
-        # Задание от Мери (содержит [user:ID]) — отвечаем reply, она поймает по message_id
+        # Немедленный ack — по его появлению в HQ понятно, получает ли Сэм бот-сообщения
+        try:
+            await msg.reply_text("⚙️ Принял, обрабатываю...")
+        except Exception as e:
+            logger.error("Сэм: не смог отправить ack: %s", e)
+
         logger.info("Сэм получил задание для user %d: %s", user_id, task_description[:80])
         try:
             report = await process_with_sam(user_id, task_description)
         except Exception as e:
             logger.error("Сэм: ошибка выполнения: %s", e)
             report = f"Что-то пошло не так: {e}"
+        # Префикс "Мери, " — Мери ловит именно этот reply для резолва Future
         await msg.reply_text(f"Мери, {report}")
     else:
         # Прямое обращение человека в Штабе — работаем с его собственным user_id и именем
