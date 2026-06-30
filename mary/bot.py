@@ -441,6 +441,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.unlink(tmp_path)
 
     await update.message.reply_text(f"🎤 Распознала: _{recognized_text}_", parse_mode="Markdown")
+
+    # В Штабе обрабатываем голосовое только если адресовано Мери
+    if update.message.chat.id == HQ_CHAT_ID:
+        low = recognized_text.lower()
+        if low.startswith("мери"):
+            body = re.sub(r'^мери[\s,]+', '', recognized_text, flags=re.IGNORECASE).strip()
+            if body:
+                await _route_text(user_id, body, update, context, voice_prefix="🎤 ")
+        return
+
     await _route_text(user_id, recognized_text, update, context, voice_prefix="🎤 ")
 
 
