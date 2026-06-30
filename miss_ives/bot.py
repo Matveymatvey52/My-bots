@@ -47,6 +47,10 @@ _pending_instruction: dict[int, tuple[str, int]] = {}
 # Запрашивать расписание только если сообщение об этом
 _SCHEDULE_KEYWORDS = ("план", "расписани", "встреч", "заня", "когда", "свобод", "завтра", "недел", "сегодня")
 
+# Контекст разговора в Штабе: после ответа Мисс Айвз продолжает отвечать этому пользователю
+_hq_context: dict[int, float] = {}
+_HQ_CONTEXT_TTL = 120  # секунды
+
 
 # ── Панель управления бизнес-чатом ───────────
 
@@ -323,18 +327,30 @@ async def handle_hq_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     _rate_limit[sender_id] = now
 
-    # Человек обращается к Мисс Айвз по имени прямо в Штабе
+    # Человек обращается к Мисс Айвз по имени или продолжает разговор
     low = msg.text.lower()
-    if low.startswith("мисс айвз") or low.startswith("айвз"):
-        body = re.sub(r'^(мисс\s+айвз|айвз)[\s,]+', '', msg.text, flags=re.IGNORECASE).strip()
+    addressed = low.startswith("мисс айвз") or low.startswith("айвз")
+    in_context = (now - _hq_context.get(sender_id, 0)) < _HQ_CONTEXT_TTL
+
+    if addressed or in_context:
+        if addressed:
+            body = re.sub(r'^(мисс\s+айвз|айвз)[\s,]+', '', msg.text, flags=re.IGNORECASE).strip()
+        else:
+            body = msg.text.strip()
         if body:
             name = load_settings(sender_id).get("name", "")
+            tasks_context = ""
+            if any(kw in low for kw in _SCHEDULE_KEYWORDS):
+                tasks_context = await ives_agent.ask_mary_for_schedule(
+                    context.bot, sender_id, owner_name=name
+                )
             try:
-                reply = await ives_agent.process_direct(body, name)
+                reply = await ives_agent.process_direct(body, name, tasks_context=tasks_context)
             except Exception as e:
                 logger.error("Мисс Айвз: ошибка прямого ответа: %s", e)
                 reply = f"Ой, не получилось ответить: {e}"
             await msg.reply_text(reply)
+            _hq_context[sender_id] = time.time()
         return
 
 
