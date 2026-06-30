@@ -59,12 +59,16 @@ def resolve_mary_response(reply_to_id: int, text: str):
         future.set_result(text)
 
 
-async def process_direct(text: str, owner_name: str = "") -> str:
-    """Прямой разговор с владельцем в Штабе (Мисс Айвз отвечает как секретарь)."""
+async def process_direct(text: str, owner_name: str = "", tasks_context: str = "") -> str:
+    """Прямой разговор с владельцем (Мисс Айвз отвечает как секретарь)."""
     now = now_msk()
     who = f" Твоего начальника зовут {owner_name}." if owner_name else ""
+    schedule_block = (
+        f"\n\nРасписание {owner_name} на ближайшие дни:\n{tasks_context}"
+        if tasks_context else ""
+    )
     system = (
-        f"Ты — Мисс Айвз, личный секретарь.{who}\n"
+        f"Ты — Мисс Айвз, личный секретарь.{who}{schedule_block}\n\n"
         f"Сейчас {now.strftime('%H:%M %d.%m.%Y')} МСК.\n"
         "Ты ведёшь деловую переписку от лица начальника через Telegram Business "
         "и помогаешь ему по секретарским вопросам.\n"

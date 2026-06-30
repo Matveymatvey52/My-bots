@@ -265,8 +265,13 @@ async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TY
     # Ответ владельцу в личке (не команда и не ожидание инструкции)
     if not msg.text.startswith("/"):
         name = load_settings(user_id).get("name", "")
+        tasks_context = ""
+        if any(kw in msg.text.lower() for kw in _SCHEDULE_KEYWORDS):
+            tasks_context = await ives_agent.ask_mary_for_schedule(
+                context.bot, user_id, owner_name=name
+            )
         try:
-            reply = await ives_agent.process_direct(msg.text.strip(), name)
+            reply = await ives_agent.process_direct(msg.text.strip(), name, tasks_context=tasks_context)
         except Exception as e:
             reply = f"Что-то пошло не так: {e}"
         await msg.reply_text(reply)
