@@ -264,15 +264,13 @@ async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Ответ владельцу в личке (не команда и не ожидание инструкции)
     if not msg.text.startswith("/"):
-        conn = get_connection_for_user(user_id)
-        if conn:
-            name = load_settings(user_id).get("name", "")
-            try:
-                reply = await ives_agent.process_direct(msg.text.strip(), name)
-            except Exception as e:
-                reply = f"Что-то пошло не так: {e}"
-            await msg.reply_text(reply)
-            return
+        name = load_settings(user_id).get("name", "")
+        try:
+            reply = await ives_agent.process_direct(msg.text.strip(), name)
+        except Exception as e:
+            reply = f"Что-то пошло не так: {e}"
+        await msg.reply_text(reply)
+        return
 
     # Открытие панели через /start bizChat<id>
     if msg.text.startswith("/start"):
