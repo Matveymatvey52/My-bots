@@ -241,13 +241,7 @@ async def _handle_hq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if sender_id == SAM_BOT_ID:
         return
 
-    # Rate limiting для всех остальных
-    now = time.time()
-    if now - _rate_limit.get(sender_id, 0) < 3:
-        return
-    _rate_limit[sender_id] = now
-
-    # Мисс Айвз спрашивает расписание
+    # Мисс Айвз спрашивает расписание — до rate limiting (два сообщения подряд)
     if sender_id == MISS_IVES_BOT_ID and text.lower().startswith("мери"):
         body = re.sub(r'^мери[\s,]+', '', text, flags=re.IGNORECASE).strip()
         m = re.search(r'\[user:(\d+)\]', body)
@@ -264,6 +258,12 @@ async def _handle_hq(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 schedule = "Предстоящих задач нет."
             await msg.reply_text(f"Мисс Айвз, вот расписание:\n{schedule}")
         return
+
+    # Rate limiting для людей
+    now = time.time()
+    if now - _rate_limit.get(sender_id, 0) < 3:
+        return
+    _rate_limit[sender_id] = now
 
     # Прочие сообщения от ботов игнорируем (чтобы не зациклиться)
     if sender_id in (SAM_BOT_ID, MISS_IVES_BOT_ID):

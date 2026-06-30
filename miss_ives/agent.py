@@ -23,9 +23,9 @@ MARY_BOT_USERNAME: str = ""  # устанавливается из main.py
 
 
 async def ask_mary_for_schedule(bot, user_id: int, owner_name: str = "") -> str:
-    """Запрашивает расписание у Мери через /schedule@Mary команду в HQ.
+    """Запрашивает расписание у Мери через текстовый запрос в HQ.
     Сначала пишет натуральный запрос для отображения, затем команду для доставки."""
-    if not HQ_CHAT_ID or not MARY_BOT_USERNAME:
+    if not HQ_CHAT_ID:
         return "Расписание недоступно."
     try:
         name_display = owner_name or f"#{user_id}"
@@ -34,10 +34,10 @@ async def ask_mary_for_schedule(bot, user_id: int, owner_name: str = "") -> str:
             chat_id=HQ_CHAT_ID,
             text=f"Мери, расскажи о планах {name_display} на ближайшие дни? 📅",
         )
-        # Команда с @упоминанием — гарантированная доставка Мери
+        # Команда с [user:X] — Мери распознаёт по sender_id + шаблону в _handle_hq
         msg = await bot.send_message(
             chat_id=HQ_CHAT_ID,
-            text=f"/schedule@{MARY_BOT_USERNAME} [user:{user_id}]",
+            text=f"Мери, расписание [user:{user_id}]",
         )
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
