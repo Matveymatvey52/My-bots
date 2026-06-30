@@ -29,12 +29,12 @@ async def ask_mary_for_schedule(bot, user_id: int, owner_name: str = "") -> str:
         return "Расписание недоступно."
     try:
         name_display = owner_name or f"#{user_id}"
-        # Натуральное сообщение для отображения в Штабе
+        # Натуральное сообщение для отображения в Штабе (именительный падеж)
         await bot.send_message(
             chat_id=HQ_CHAT_ID,
-            text=f"Мери, расскажи о планах {name_display} на ближайшие дни? 📅",
+            text=f"Мери, {name_display} спрашивает о планах на ближайшие дни 📅",
         )
-        # Команда с [user:X] — Мери распознаёт по sender_id + шаблону в _handle_hq
+        # Техническая команда — Мери отвечает на неё, потом удаляем
         msg = await bot.send_message(
             chat_id=HQ_CHAT_ID,
             text=f"Мери, расписание [user:{user_id}]",
@@ -48,6 +48,10 @@ async def ask_mary_for_schedule(bot, user_id: int, owner_name: str = "") -> str:
             return "расписание временно недоступно"
         finally:
             _pending_mary.pop(msg.message_id, None)
+            try:
+                await bot.delete_message(chat_id=HQ_CHAT_ID, message_id=msg.message_id)
+            except Exception:
+                pass
     except Exception as e:
         return f"Ошибка запроса расписания: {e}"
 
@@ -62,7 +66,7 @@ def resolve_mary_response(reply_to_id: int, text: str):
 async def process_direct(text: str, owner_name: str = "", tasks_context: str = "") -> str:
     """Прямой разговор с владельцем (Мисс Айвз отвечает как секретарь)."""
     now = now_msk()
-    who = f" Твоего начальника зовут {owner_name}." if owner_name else ""
+    who = f" Твоего начальника зовут {owner_name}. Правильно склоняй его имя по падежам (например, «у {owner_name}а», «для {owner_name}а» и т.д.)." if owner_name else ""
     schedule_block = (
         f"\n\nРасписание {owner_name} на ближайшие дни:\n{tasks_context}"
         if tasks_context else ""
@@ -129,8 +133,9 @@ async def generate_business_reply(
     )
     custom_block = f"\n\nОсобая инструкция для этого чата: {custom_instruction}" if custom_instruction else ""
 
+    declension_note = f" Правильно склоняй имя {owner_name} по падежам." if owner_name else ""
     system = (
-        f"Ты ведёшь переписку от лица {owner_name}.{schedule_block}{custom_block}\n\n"
+        f"Ты ведёшь переписку от лица {owner_name}.{declension_note}{schedule_block}{custom_block}\n\n"
         f"Сейчас: {current_time_str} МСК.\n\n"
         f"Правила:\n"
         f"- Пиши как живой человек: коротко, неформально, без пафоса\n"
